@@ -8,6 +8,12 @@ die Desktop-App lädt und gegen die die Tests laufen. Sie ist ein internes Baute
 als eigenes Programm ausgeliefert oder unterstützt (im Browser gelten die Schutzmaßnahmen der
 Desktop-App nicht). Die Bedienung beschreibt `LIESMICH.txt`.
 
+## Urheber und Lizenz
+
+PlantPDF wurde von jsteiner4000 entwickelt und geschrieben; sämtliche Rechte liegen bei ihm
+(siehe `LICENSE`, © 2026, alle Rechte vorbehalten). Bibliotheken und Schriften Dritter behalten
+ihre eigenen Lizenzen (`npm run licenses`, im Programm unter Hilfe › Lizenzhinweise).
+
 ## Schnellstart
 
 ```sh

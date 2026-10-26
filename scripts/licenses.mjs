@@ -33,6 +33,12 @@ const line = '='.repeat(78);
 const parts = [
   `PlantPDF ${pkg.version} – Lizenzhinweise`,
   '',
+  `PlantPDF wurde von ${pkg.author.name} entwickelt und geschrieben.`,
+  `© 2026 ${pkg.author.name}. Alle Rechte vorbehalten; sämtliche Rechte an PlantPDF liegen beim Entwickler.`,
+  'Ohne seine schriftliche Erlaubnis darf PlantPDF nicht kopiert, verändert, weitergegeben',
+  'oder in anderen Programmen verwendet werden. Für die unten genannten Bestandteile Dritter',
+  'gelten deren eigene Lizenzen.',
+  '',
   'PlantPDF enthält die folgenden Bibliotheken und Schriften Dritter. Die Desktop-App',
   'basiert zusätzlich auf Electron (MIT) und Chromium; deren Lizenzen liegen im',
   'Programmordner (LICENSE.electron.txt, LICENSES.chromium.html).',

@@ -1,8 +1,9 @@
 {
   "name": "pdf-editor",
   "productName": "PlantPDF",
-  "version": "2.22.2",
+  "version": "2.22.3",
   "private": true,
+  "license": "UNLICENSED",
   "description": "PlantPDF: PDFs bearbeiten, ordnen und unterschreiben – Desktop-App für Windows (Electron).",
   "author": {
     "name": "jsteiner4000"
