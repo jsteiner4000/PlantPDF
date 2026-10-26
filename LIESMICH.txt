@@ -7,6 +7,10 @@ Kundendokumentationen (Lageplan, Anschlussplan, Zugangsdaten, Fotos) sowie
 Bedienungsanleitungen und Technische Beschreibungen als PDF. Alles bleibt auf Ihrem
 Rechner – ins Internet geht nur die Suche nach Updates (siehe UPDATES).
 
+PlantPDF wurde von Julius Steiner entwickelt und geschrieben (© 2026, alle Rechte
+vorbehalten). Die Rechte an PlantPDF liegen beim Entwickler; Bibliotheken und
+Schriften Dritter behalten ihre Lizenzen (Hilfe › Lizenzhinweise).
+
 Bis Version 2.13 hieß das Programm „PDFix“. Ein Update übernimmt Einstellungen,
 Unterschriften, eigene Schriften, Entwürfe und die Wahl als Standardprogramm.
 
@@ -15,7 +19,7 @@ STARTEN
 -------
 Windows 10/11
 
-Installation: „PlantPDF-Setup-2.22.2.exe“ ausführen. PlantPDF wird nur
+Installation: „PlantPDF-Setup-2.22.3.exe“ ausführen. PlantPDF wird nur
 für den eigenen Benutzer installiert – Administratorrechte sind nicht nötig.
 Danach gibt es ihn im Startmenü und als Symbol auf dem Desktop.
 Im Installer gibt es die Option „PlantPDF zum Standardprogramm für PDF-Dateien
