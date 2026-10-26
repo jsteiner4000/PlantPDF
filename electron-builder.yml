@@ -3,7 +3,7 @@
 # Vorher bauen: npm run build:desktop (macht npm run dist:win automatisch).
 appId: de.jsteiner.pdfeditor
 productName: PlantPDF
-copyright: © 2026 jsteiner4000
+copyright: © 2026 Julius Steiner
 artifactName: PlantPDF-${version}-${arch}.${ext}
 
 directories:

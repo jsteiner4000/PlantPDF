@@ -6,7 +6,7 @@
   "license": "UNLICENSED",
   "description": "PlantPDF: PDFs bearbeiten, ordnen und unterschreiben – Desktop-App für Windows (Electron).",
   "author": {
-    "name": "jsteiner4000"
+    "name": "Julius Steiner"
   },
   "type": "module",
   "main": "desktop/main.js",

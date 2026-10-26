@@ -7,9 +7,9 @@ Kundendokumentationen (Lageplan, Anschlussplan, Zugangsdaten, Fotos) sowie
 Bedienungsanleitungen und Technische Beschreibungen als PDF. Alles bleibt auf Ihrem
 Rechner – ins Internet geht nur die Suche nach Updates (siehe UPDATES).
 
-PlantPDF wurde von jsteiner4000 entwickelt und geschrieben (© 2026, alle Rechte
+PlantPDF wurde von Julius Steiner entwickelt und geschrieben (© 2026, alle Rechte
 vorbehalten). Die Rechte an PlantPDF liegen beim Entwickler; Bibliotheken und
-Schriften Dritter behalten ihre Lizenzen (Hilfe > Lizenzhinweise).
+Schriften Dritter behalten ihre Lizenzen (Hilfe › Lizenzhinweise).
 
 Bis Version 2.13 hieß das Programm „PDFix“. Ein Update übernimmt Einstellungen,
 Unterschriften, eigene Schriften, Entwürfe und die Wahl als Standardprogramm.
