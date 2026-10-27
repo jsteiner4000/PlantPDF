@@ -1,0 +1,50 @@
+# Download-Verlauf: fragt alle 5 Minuten die Download-Zahlen der Releases ab und hängt neue
+# Downloads mit Zeitfenster an downloads.csv auf dem Branch „download-stats“ an
+# (scripts/download-stats.mjs). Committet wird nur, wenn sich eine Zahl geändert hat. Der Branch
+# ist nicht main, löst also weder Auto-Release noch Release aus.
+# GitHub startet geplante Läufe bei Last oft verspätet; die Zeitfenster sind dann entsprechend länger.
+name: Download-Verlauf
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write # Branch download-stats schreiben
+  actions: read # Startzeit des letzten erfolgreichen Laufs
+
+concurrency:
+  group: download-stats
+  cancel-in-progress: false
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Abfragen und aufzeichnen
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if git fetch --depth=1 origin download-stats; then
+            git worktree add -B download-stats data FETCH_HEAD
+          else
+            git worktree add --orphan -b download-stats data
+          fi
+          export LETZTE_ABFRAGE=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow download-stats.yml \
+            --status success --limit 1 --json createdAt --jq '.[0].createdAt // ""')
+          node scripts/download-stats.mjs record data
+          cd data
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Keine Änderung."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -q -m "Download-Verlauf $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push origin download-stats

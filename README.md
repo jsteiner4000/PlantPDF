@@ -36,6 +36,7 @@ Weitere Befehle:
 | `npm run dist:win`   | baut den Installer nach `release/` (unter Windows)                         |
 | `npm run dist:linux` | baut die Desktop-App ungepackt nach `release/linux-unpacked/` (zum Testen) |
 | `npm run licenses`   | erzeugt `dist/licenses/Lizenzhinweise.txt`                                 |
+| `npm run downloads`  | zeigt den Download-Verlauf der Releases (`-- --tage 7`: letzte 7 Tage)     |
 
 ## Projektstruktur
 
@@ -103,8 +104,10 @@ desktop/                  Desktop-App (Electron-Hauptprozess)
 electron-builder.yml      Paketierung (NSIS-Installer, Linux-Verzeichnis zum Testen)
 .github/workflows/release.yml  Windows-Build in GitHub Actions (Tags v*, manuell)
 .github/workflows/auto-release.yml  setzt bei neuer Version auf main den Tag und startet das Release
+.github/workflows/download-stats.yml  zeichnet alle 5 Minuten neue Release-Downloads auf (Branch download-stats)
 scripts/build.mjs         Build (esbuild) → dist/PDF-Editor.html
 scripts/licenses.mjs      Lizenzhinweise der eingebundenen Bibliotheken und Schriften
+scripts/download-stats.mjs  Download-Verlauf aufzeichnen und anzeigen (`npm run downloads`)
 tests/                    Playwright-Regressionstests, Test-PDFs und deren Generator
 assets/
   fonts/embedded/         eingebettete Schriften (verkleinerte Fassungen)
@@ -213,6 +216,17 @@ Schreibrechte nach einem Neustart erfordern Berechtigungsabfragen ohne Oberfläc
   `release.yml` für diesen Tag. Ein Release entsteht also allein durch das Hochzählen der Version.
   Aktionen sind auf Commit-SHAs festgelegt (Version im Kommentar); beim Aktualisieren SHA und
   Kommentar gemeinsam ändern.
+- **Download-Verlauf**: GitHub nennt pro Setup-Datei nur die Gesamtzahl der Downloads, keinen
+  Zeitpunkt. `.github/workflows/download-stats.yml` fragt die Zahlen deshalb alle 5 Minuten ab;
+  ist eine gestiegen, hängt `scripts/download-stats.mjs` eine Zeile an `downloads.csv` auf dem
+  Branch `download-stats` an (`erkannt_utc`, `seit_utc` = Start des letzten erfolgreichen Laufs,
+  Version, Datei, Anzahl). Der Download liegt also im Zeitfenster dazwischen. Committet wird nur
+  bei Änderungen; der Branch ist nicht `main` und löst keine Releases aus. Anzeigen: `npm run
+  downloads` (Ortszeit, pro Tag, Summe) oder die CSV direkt auf GitHub. Mitgezählt werden auch eigene
+  Downloads und die Updates aus PlantPDF selbst; einzelne Personen lassen sich nicht unterscheiden.
+  GitHub startet geplante Läufe bei Last oft verspätet (die Fenster werden dann länger) und
+  deaktiviert sie in öffentlichen Repositories nach 60 Tagen ohne Aktivität im Repository – dann unter Actions wieder
+  aktivieren.
 - **Fehlerfälle**: Dateifehler (schreibgeschützt, gesperrt, Datenträger voll, Ordner fehlt …)
   erreichen die Seite als deutsche Meldung ohne Pfad. Geschrieben wird atomar mit `fsync`;
   Symlinks werden aufgelöst, der Dateimodus bleibt, unter Windows gibt es Wiederholungen bei
