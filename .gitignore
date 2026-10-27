@@ -4,5 +4,9 @@ test-results/
 playwright-report/
 release/
 
-# graphify output (regenerable)
-graphify-out/
+# graphify: keep the graph, report and viewer; ignore caches and local state
+graphify-out/*
+!graphify-out/graph.json
+!graphify-out/GRAPH_REPORT.md
+!graphify-out/graph-standalone.html
+!graphify-out/.graphify_labels.json
