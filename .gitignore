@@ -3,3 +3,6 @@ dist/
 test-results/
 playwright-report/
 release/
+
+# graphify output (regenerable)
+graphify-out/
