@@ -26,6 +26,7 @@ import { THEMES, readTheme, setTheme } from './ui/theme.js';
 import { fileErrorReason, notifyDocumentState, reviveFileHandle } from './platform/desktop-bridge.js';
 import { keepTopBarFitting } from './platform/title-bar.js';
 import { Recovery } from './ui/recovery.js';
+import { saveFlash } from './ui/save-progress.js';
 import { STUDIO_TEMPLATES, Studio, deleteDraft, deleteTemplate, ensureBarlow, listAutosaves, listDrafts, listTemplates, templatePreview } from './studio/studio.js';
 
 /**
@@ -1128,7 +1129,7 @@ export class App {
         await writable.write(bytes);
         await writable.close();
         this.markSaved();
-        toast('Gespeichert');
+        saveFlash(this.file.name);
         idbPut('recent', this.file.name, { name: this.file.name, handle, time: Date.now() });
         return true;
       }, 100);
@@ -1170,7 +1171,7 @@ export class App {
           $('#docName').textContent = handle.name;
           document.title = handle.name + ' – PlantPDF';
           this.markSaved();
-          toast('Gespeichert als ' + handle.name);
+          saveFlash(handle.name);
           idbPut('recent', handle.name, { name: handle.name, handle, time: Date.now() });
           return true;
         }, 100).catch((err) => {

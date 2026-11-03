@@ -16,7 +16,7 @@ import { idbPut } from '../storage/idb.js';
 import { fileErrorReason, notifyDocumentState, reviveFileHandle } from '../platform/desktop-bridge.js';
 import { liveWindows, windowId } from '../storage/recovery.js';
 import { when } from '../ui/recovery.js';
-import { saveProgress } from '../ui/save-progress.js';
+import { saveFlash } from '../ui/save-progress.js';
 import {
   ACCESS_BLOCKS,
   DOC_PARTS,
@@ -556,7 +556,7 @@ export class Studio {
 
   /**
    * Vor dem Schließen (X, Strg+W, Fenster schließen, andere Dokumentation öffnen): bei ungespeicherten
-   * Änderungen fragen – Speichern zeigt den Ring mit Haken. Ergebnis: true = darf schließen.
+   * Änderungen fragen. Ergebnis: true = darf schließen.
    */
   async confirmClose() {
     if (!this.project) return true;
@@ -588,7 +588,7 @@ export class Studio {
       return true;
     }
     if (choice !== 'save') return false;
-    return this.save({ animate: true });
+    return this.save();
   }
 
   async close() {
@@ -2614,11 +2614,11 @@ ${toPdf}
    * Speichern (Strg+S, Schaltfläche, Rückfrage beim Schließen): die PDF samt Dokumentation in die
    * zugehörige Datei schreiben – ohne Nachfrage, wenn sie bekannt ist (geöffnet aus einer PDF oder
    * schon einmal gespeichert); sonst einmal den Speicherort wählen. `as`: immer neu wählen
-   * („Speichern unter“). `animate`: Ring mit Haken statt kurzer Meldung (beim Schließen).
+   * („Speichern unter“). Danach kurz der Haken „Gespeichert“ unter der Schaltfläche.
    * Im Browser ohne PDF-Erzeugung: Stand unter „Zuletzt bearbeitet“ ablegen; „Speichern unter“
    * öffnet dort den Druckdialog („Als PDF speichern“).
    */
-  async save({ as = false, animate = false } = {}) {
+  async save({ as = false } = {}) {
     if (!this.project) return false;
     clearTimeout(this.saveTimer);
     const snap = this.snap;
@@ -2628,17 +2628,14 @@ ${toPdf}
         await this.print();
         return false;
       }
-      const progress = animate ? saveProgress(`„${this.label()}“ wird gespeichert`, 'Wird gesichert …') : null;
       try {
         await this.commitSaved(snap);
       } catch (err) {
         console.error('Speichern', err);
-        progress?.fail();
         toast('Die Dokumentation konnte nicht gespeichert werden.', 'err', 6000);
         return false;
       }
-      if (progress) await progress.done(this.label());
-      else toast('Gespeichert – auf der Startseite unter „Zuletzt bearbeitet“.');
+      saveFlash(this.label());
       return true;
     }
     // Passwörter: einmal je geöffneter Dokumentation fragen (bei „Speichern unter“ neu)
@@ -2681,9 +2678,8 @@ ${toPdf}
         if (err && err.name === 'AbortError') return false;
       }
     }
-    const progress = animate ? saveProgress(`„${handle ? handle.name.replace(/\.pdf$/i, '') : this.label()}“ wird gespeichert`) : null;
     try {
-      const bytes = await (progress ? this.buildPdf(show) : withBusy(() => this.buildPdf(show), 100));
+      const bytes = await withBusy(() => this.buildPdf(show), 100);
       if (handle) {
         const writable = await handle.createWritable();
         await writable.write(bytes);
@@ -2696,12 +2692,11 @@ ${toPdf}
         this.file = { name, handle: null };
       }
       await this.commitSaved(snap);
-      if (progress) await progress.done(this.file.name);
-      else toast(handle ? 'Gespeichert: ' + handle.name : 'Die PDF wurde in den Download-Ordner gespeichert.');
+      if (handle) saveFlash(handle.name);
+      else toast('Die PDF wurde in den Download-Ordner gespeichert.');
       return true;
     } catch (err) {
       console.error('Speichern', err);
-      progress?.fail();
       toast(fileErrorReason(err) ? 'Speichern nicht möglich: ' + fileErrorReason(err) : failMessage(err), 'err', 6000);
       return false;
     }

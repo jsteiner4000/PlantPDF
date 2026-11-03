@@ -3234,3 +3234,110 @@ select.ff:focus {
 .updx-cancel[hidden] {
   display: none;
 }
+
+/* Kurze Bestätigung „Gespeichert“ unter der Schaltfläche Speichern (src/ui/save-progress.js) */
+.savefx {
+  position: fixed;
+  z-index: 75;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px 5px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  box-shadow: var(--sh2);
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 600;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-4px) scale(0.96);
+  transition:
+    opacity 0.18s var(--ease-out),
+    transform 0.24s var(--ease-out);
+}
+.savefx.in {
+  opacity: 1;
+  transform: none;
+}
+.savefx svg {
+  width: 22px;
+  height: 22px;
+  overflow: visible;
+}
+.savefx-track,
+.savefx-arc {
+  fill: none;
+  stroke-width: 11;
+}
+.savefx-track {
+  stroke: color-mix(in srgb, var(--acc) 14%, var(--line));
+}
+.savefx-arc {
+  stroke: url(#savefxGrad);
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: 60px 60px;
+}
+.savefx-check {
+  fill: none;
+  stroke: url(#savefxCheck);
+  stroke-width: 12;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 60;
+  stroke-dashoffset: 60;
+}
+.savefx-tip {
+  fill: #f0f9ff;
+  opacity: 0;
+  filter: drop-shadow(0 0 4px #7dd3fc);
+}
+.savefx.in .savefx-arc {
+  animation: savefx-ring 0.28s var(--ease-out) forwards;
+}
+.savefx.in .savefx-check {
+  animation: savefx-check 0.3s 0.24s cubic-bezier(0.65, 0, 0.35, 1) forwards;
+}
+.savefx.in .savefx-tip {
+  animation: savefx-tip 0.42s 0.24s ease-out forwards;
+}
+.savefx.in svg {
+  animation: savefx-pop 0.36s 0.48s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes savefx-ring {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes savefx-check {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes savefx-tip {
+  0%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes savefx-pop {
+  50% {
+    transform: scale(1.12);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .savefx.in .savefx-arc,
+  .savefx.in .savefx-check {
+    animation-duration: 0.01s;
+    animation-delay: 0s;
+  }
+  .savefx.in .savefx-tip,
+  .savefx.in svg {
+    animation: none;
+  }
+}
