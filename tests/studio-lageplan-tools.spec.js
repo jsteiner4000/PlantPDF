@@ -194,11 +194,17 @@ test('Maßstab, Linie, Freihand, Zaun und Zone mit Längen und Fläche', async (
       const sec = st.project.sections.find((x) => x.type === 'site');
       st.select({ kind: 'shape', id: sec.shapes[3].id, section: sec.id });
     });
-    const hit = await page.locator('.sd-vertex').first().evaluate((el) => {
-      const r = getComputedStyle(el, '::after');
-      return [parseFloat(r.width), parseFloat(r.height)];
-    });
-    expect(Math.min(...hit)).toBeGreaterThanOrEqual(22);
+    // (nach dem Wählen werden die Griffe neu aufgebaut – bis dahin abwarten)
+    const hit = () =>
+      page
+        .locator('.sd-vertex')
+        .first()
+        .evaluate((el) => {
+          const r = getComputedStyle(el, '::after');
+          return Math.min(parseFloat(r.width), parseFloat(r.height)) || 0;
+        })
+        .catch(() => 0);
+    await expect.poll(hit).toBeGreaterThanOrEqual(22);
 
     // Kamera-Reichweite in Metern
     await pick(page, 'Kamera');

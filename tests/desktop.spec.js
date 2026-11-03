@@ -561,7 +561,9 @@ test('Desktop-App: Schnelldruck (Windows-Verb „Drucken“, z. B. Outlook) ohne
     await expect.poll(() => existsSync(out2), { timeout: 30_000 }).toBe(true);
     await expect(page.locator('.toast', { hasText: 'an den Drucker gesendet' })).toBeVisible();
     expect(await page.evaluate(() => window.pdfEditor.file.name)).toBe('layout.pdf');
-    expect(app.windows().length).toBe(1);
+    // kein zusätzliches Fenster, kein zusätzlicher Tab (die vorgewärmte Startseite zählt nicht)
+    expect(await app.evaluate(() => globalThis.__plantpdf.windows())).toBe(1);
+    expect(await tabCount(app)).toBe(1);
   } finally {
     await app.close().catch(() => {});
   }
@@ -814,6 +816,46 @@ test('Desktop-App: Tabs – zweite PDF im neuen Tab, umordnen, herausziehen, zur
     await expect.poll(() => tabCount(app)).toBe(3);
     expect(readFileSync(file).equals(before)).toBe(false);
     expect(await app.evaluate(() => globalThis.__nativeAsked)).toBe(0);
+  } finally {
+    await quit(app);
+  }
+});
+
+test('Desktop-App: Bereichswechsel ohne Warten – vorgewärmte Startseite statt neu laden', async () => {
+  const { app, page } = await launchWith(['a.pdf']);
+  try {
+    await waitForDocument(page, 'a.pdf');
+    const spares = () => app.evaluate(() => globalThis.__plantpdf.spares());
+    const active = () => app.evaluate(() => (globalThis.__plantpdf.tabs().find((t) => t.active) || {}).id);
+    // die Startseite hat die PDF bekommen: kurz darauf lädt eine neue verborgen im Hintergrund
+    await expect.poll(async () => (await spares()).filter((t) => t.ready).length, { timeout: 20_000 }).toBe(1);
+    expect(await tabCount(app)).toBe(1); // zählt nicht als Tab
+    const [spare] = await spares();
+
+    // Wechsel zur Dokumentation: genau diese (fertig geladene) Startseite kommt nach vorn
+    const t0 = Date.now();
+    await page.locator('#wsDocs').click();
+    await expect.poll(active).toBe(spare.id);
+    const docs = await activePage(app);
+    await expect(docs.locator('.tpl[data-tpl="manual"]')).toBeVisible();
+    const ms = Date.now() - t0;
+    console.log(`Wechsel PDF → Dokumentation: ${ms} ms`);
+    expect(ms).toBeLessThan(2000);
+    expect(await tabCount(app)).toBe(2);
+
+    // Anleitung anlegen (die Startseite wird zum Dokument) → wieder eine vorgewärmte Startseite;
+    // zurück zu „PDF“: kein neuer Tab muss laden
+    await docs.locator('.tpl[data-tpl="manual"]').click();
+    await expect(docs.locator('#studio .sd-page').first()).toBeVisible();
+    await expect.poll(async () => (await spares()).filter((t) => t.ready).length, { timeout: 20_000 }).toBe(1);
+    const [next] = await spares();
+    const t1 = Date.now();
+    await docs.locator('#wsPdf').click();
+    await expect.poll(active).toBe(next.id);
+    const home = await activePage(app);
+    await expect(home.locator('#hOpen')).toBeVisible();
+    console.log(`Wechsel Dokumentation → PDF: ${Date.now() - t1} ms`);
+    expect(await tabCount(app)).toBe(3);
   } finally {
     await quit(app);
   }

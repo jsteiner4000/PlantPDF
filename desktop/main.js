@@ -116,6 +116,8 @@ function start() {
 
   const emptyState = () => ({ hasDocument: false, name: '', dirty: false, pdfOpen: false, siteOpen: false, studioOpen: false, fileId: '', projectId: '', workspace: 'pdf' });
   const allTabs = () => wins.flatMap((w) => w.tabs);
+  /** Tabs eines Fensters ohne die vorgewärmte, noch nie gezeigte Startseite (siehe ensureSpare). */
+  const realTabs = (w) => w.tabs.filter((t) => !t.spare);
   const tabOf = (contents) => allTabs().find((t) => !t.closed && t.view.webContents === contents) || null;
   const alive = (w) => !!w && !w.base.isDestroyed();
   const focusedWin = () => (alive(lastFocused) ? lastFocused : wins.find(alive)) || null;
@@ -129,7 +131,8 @@ function start() {
     globalThis.__plantpdf = {
       win: () => focusedWin()?.base,
       contents: () => activeTab()?.view.webContents,
-      tabs: () => allTabs().map((t) => ({ id: t.id, win: t.win.id, name: t.state.name, hasDocument: t.state.hasDocument, active: t.win.active === t })),
+      spares: () => allTabs().filter((t) => t.spare && !t.closed).map((t) => ({ id: t.id, ready: t.ready })),
+      tabs: () => allTabs().filter((t) => !t.spare).map((t) => ({ id: t.id, win: t.win.id, name: t.state.name, hasDocument: t.state.hasDocument, active: t.win.active === t })),
       windows: () => wins.length,
       winId: () => focusedWin()?.id,
       boundsOf: (id) => wins.find((w) => w.id === id)?.base.getContentBounds(),
@@ -227,7 +230,7 @@ function start() {
   }
 
   /** Neuer Tab; `open` = was er nach dem Start öffnet ({ kind: 'file'|'bytes'|'draft', … }). */
-  function createTab(w, { open = null, activate = true, index = w.tabs.length, primary = false } = {}) {
+  function createTab(w, { open = null, activate = true, index = w.tabs.length, primary = false, spare = false } = {}) {
     const view = new WebContentsView({
       webPreferences: {
         preload: path.join(ROOT, 'desktop', 'preload.cjs'),
@@ -241,7 +244,7 @@ function start() {
     });
     view.setBackgroundColor(frameColors().background);
     /** @type {Tab} */
-    const tab = { id: nextId++, view, win: w, state: emptyState(), ready: false, gone: false, closed: false, open, primary, waiting: [] };
+    const tab = { id: nextId++, view, win: w, state: emptyState(), ready: false, gone: false, closed: false, open, primary, waiting: [], spare };
     if (open) Object.assign(tab.state, placeholder(open));
     w.tabs.splice(Math.max(0, Math.min(index, w.tabs.length)), 0, tab);
     // ganz nach hinten: lädt verdeckt unter der sichtbaren Ansicht (activateTab holt ihn nach vorn)
@@ -251,7 +254,8 @@ function start() {
     view.webContents.setVisualZoomLevelLimits(1, 1);
     view.webContents.loadURL(START_URL);
     if (activate || !w.active) activateTab(tab);
-    else view.setVisible(false);
+    // die vorgewärmte Startseite bleibt sichtbar, aber verdeckt ganz hinten: sie hat dann schon ein Bild
+    else view.setVisible(spare);
     broadcastTabs(w);
     return tab;
   }
@@ -276,6 +280,7 @@ function start() {
     const w = tab.win;
     const prev = w.front;
     w.active = tab;
+    tab.spare = false; // die vorgewärmte Startseite wird jetzt gezeigt
     const token = ++w.swap;
     updateTitle(w);
     broadcastTabs(w);
@@ -284,7 +289,7 @@ function start() {
       w.base.contentView.addChildView(tab.view); // nach vorn (Reihenfolge der Ansichten)
       w.front = tab;
       w.shown = null;
-      for (const t of w.tabs) if (t !== tab && !t.closed) t.view.setVisible(false);
+      for (const t of w.tabs) if (t !== tab && !t.closed && !t.spare) t.view.setVisible(false);
       if (usable(tab) && w.base.isFocused()) tab.view.webContents.focus();
     };
     tab.view.setVisible(true);
@@ -300,11 +305,30 @@ function start() {
     return shown;
   }
 
-  /** Erstes Bild des Tabs ist gezeichnet (geladen und zwei Bildwechsel); höchstens ein paar Sekunden. */
+  /**
+   * Erstes Bild des Tabs ist gezeichnet (geladen und zwei Bildwechsel). Ein geladener Tab braucht
+   * dafür nur wenige Millisekunden – spätestens nach 250 ms kommt er trotzdem nach vorn, damit der
+   * Wechsel nie hängt. Ein Tab, der noch lädt, höchstens 4 s (danach lieber kurz leer als blockiert).
+   */
   function whenPainted(tab) {
     const loaded = tab.ready ? Promise.resolve() : new Promise((resolve) => tab.waiting.push(resolve));
-    const painted = loaded.then(() => (usable(tab) ? command('painted', { tab, wait: true, timeout: 1500 }).catch(() => {}) : null));
-    return Promise.race([painted, new Promise((resolve) => setTimeout(resolve, 6000))]);
+    const painted = loaded.then(() => (usable(tab) ? command('painted', { tab, wait: true, timeout: 250 }).catch(() => {}) : null));
+    return Promise.race([painted, new Promise((resolve) => setTimeout(resolve, 4000))]);
+  }
+
+  /**
+   * Vorgewärmte Startseite: Hat ein Fenster keine Startseite mehr (sie hat ein Dokument bekommen),
+   * lädt kurz darauf eine neue verborgen im Hintergrund. Der Wechsel zur Startseite bzw. in den
+   * anderen Bereich ist dann sofort da, statt erst das ganze Programm in einem neuen Tab zu laden.
+   */
+  function ensureSpare(w) {
+    if (printOnly || !alive(w) || w.spareTimer) return;
+    w.spareTimer = setTimeout(() => {
+      w.spareTimer = 0;
+      if (printOnly || !alive(w) || w.allowClose || w.closing) return;
+      if (w.tabs.some((t) => !t.closed && !t.state.hasDocument)) return;
+      createTab(w, { activate: false, spare: true });
+    }, 1500);
   }
 
   function focusTab(tab) {
@@ -342,7 +366,7 @@ function start() {
     if (i < 0) return;
     const ws = wsOf(tab);
     w.tabs.splice(i, 1);
-    if (!w.tabs.length) createTab(w);
+    if (!realTabs(w).length && !w.tabs.length) createTab(w);
     else if (w.active === tab) activateNear(w, i, ws);
     broadcastTabs(w);
     // die Ansicht bleibt stehen, bis die nächste gezeichnet vorn ist (kein schwarzes Zwischenbild)
@@ -375,8 +399,8 @@ function start() {
       tab.closing = false;
     }
     if (tab.closed) return true;
-    if (tab.win.tabs.length === 1 && !tab.state.hasDocument) return true;
-    if (tab.win.tabs.length === 1) {
+    if (realTabs(tab.win).length === 1 && !tab.state.hasDocument) return true;
+    if (realTabs(tab.win).length === 1 && !tab.win.tabs.some((t) => t !== tab && !t.state.hasDocument)) {
       // einziger Tab: Startseite daneben öffnen, dann diesen entfernen
       createTab(tab.win);
     }
@@ -396,7 +420,7 @@ function start() {
     target.base.contentView.addChildView(tab.view);
     layout(target);
     focusTab(tab);
-    if (!from.tabs.length) {
+    if (!realTabs(from).length) {
       from.allowClose = true;
       from.base.close();
     } else {
@@ -418,7 +442,7 @@ function start() {
     if (target) return moveTab(tab, target);
     const from = tab.win;
     if (stripContains(from, x, y)) return;
-    if (from.tabs.length === 1) return; // einziger Tab: das Fenster bleibt, wie es ist
+    if (realTabs(from).length === 1) return; // einziger Tab: das Fenster bleibt, wie es ist
     const size = from.base.isMaximized() ? DEFAULT_SIZE : from.base.getBounds();
     const w = createWin({ bounds: { x: Math.round(x - 160), y: Math.round(y - 18), width: size.width, height: size.height } });
     moveTab(tab, w, 0);
@@ -438,6 +462,7 @@ function start() {
 
   function deliver(tab, open) {
     Object.assign(tab.state, placeholder(open));
+    ensureSpare(tab.win);
     broadcastTabs(tab.win);
     updateTitle(tab.win);
     if (open.kind === 'file') tab.view.webContents.send('app:open-file', open.entry);
@@ -616,6 +641,8 @@ function start() {
   async function confirmClose(tab) {
     // Ansicht abgestürzt: Der Dokumentzustand ist verloren, Speichern ist nicht mehr möglich.
     if (!usable(tab)) return true;
+    // Startseite (auch die vorgewärmte, die vielleicht noch lädt): nichts zu speichern, nicht warten
+    if (!tab.state.hasDocument && (tab.spare || !tab.ready)) return true;
     let dirty = tab.state.dirty;
     let name = tab.state.name;
     let studio = false;
@@ -835,7 +862,7 @@ function start() {
             : key === 'f11' && !input.control
               ? () => w.base.setFullScreen(!w.base.isFullScreen())
               : input.control && key === 'w'
-                ? () => (tab.state.hasDocument || w.tabs.length > 1 ? closeTab(tab) : w.base.close())
+                ? () => (tab.state.hasDocument || realTabs(w).length > 1 ? closeTab(tab) : w.base.close())
                 : input.control && key === 't'
                   ? () => homeTab(w, wsOf(w.active))
                   : input.control && key === 'm'
@@ -999,7 +1026,7 @@ function start() {
     // Das Dokument im eigenen Tab wurde geschlossen (Rückfrage war schon): Tab weg, außer er ist der letzte
     handle('tab:closed-self', (tab) => {
       tab.state = emptyState();
-      if (tab.win.tabs.length > 1) removeTab(tab);
+      if (realTabs(tab.win).length > 1) removeTab(tab);
       else broadcastTabs(tab.win);
     });
     handle('tab:home', (tab, ws) => homeTab(tab.win, ws === 'pdf' || ws === 'docs' ? ws : wsOf(tab)));
@@ -1046,6 +1073,7 @@ function start() {
       if (tab.workspace === state.workspace || state.hasDocument) tab.workspace = null;
       updateTitle(tab.win);
       broadcastTabs(tab.win);
+      if (state.hasDocument) ensureSpare(tab.win);
       // Darstellung der App auch für Titelleiste, Menü, Systemdialoge und die anderen Tabs
       if (['light', 'dark', 'system'].includes(state.theme) && nativeTheme.themeSource !== state.theme) {
         nativeTheme.themeSource = state.theme;

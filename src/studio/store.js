@@ -14,7 +14,7 @@
  * Eigene Vorlagen genauso in `tmeta` (mit kleinem Vorschaubild) und `tdata`.
  */
 const DB_NAME = 'pdfix-studio';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 let dbPromise = null;
 
@@ -22,9 +22,20 @@ function db() {
   if (!dbPromise)
     dbPromise = new Promise((resolve, reject) => {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
-      request.onupgradeneeded = () => {
+      request.onupgradeneeded = (ev) => {
         const d = request.result;
-        for (const name of ['meta', 'data', 'tmeta', 'tdata', 'auto']) if (!d.objectStoreNames.contains(name)) d.createObjectStore(name, { keyPath: 'id' });
+        for (const name of ['meta', 'data', 'tmeta', 'tdata', 'auto', 'autometa']) if (!d.objectStoreNames.contains(name)) d.createObjectStore(name, { keyPath: 'id' });
+        // Fassung 3 hatte die Sicherungen ohne eigene Liste: Liste einmalig nachtragen
+        if (ev.oldVersion === 3) {
+          const tx = request.transaction;
+          const meta = tx.objectStore('autometa');
+          tx.objectStore('auto').openCursor().onsuccess = (e) => {
+            const cursor = e.target.result;
+            if (!cursor) return;
+            meta.put(autoMeta(cursor.value));
+            cursor.continue();
+          };
+        }
       };
       request.onsuccess = () => {
         // ein neueres PlantPDF (anderer Tab) braucht die Datenbank in neuer Fassung: Platz machen
@@ -123,12 +134,22 @@ export function putAutosave(project, info) {
       run(
         'readwrite',
         (tx) => {
-          tx.objectStore('auto').put({ id: info.key || project.id, project, owner: info.owner, name: info.name, file, saved: !!info.saved, handoff: info.handoff || null, time: Date.now() });
+          const record = { id: info.key || project.id, project, owner: info.owner, name: info.name, file, saved: !!info.saved, handoff: info.handoff || null, time: Date.now() };
+          tx.objectStore('auto').put(record);
+          tx.objectStore('autometa').put(autoMeta(record));
         },
-        ['auto'],
+        AUTO,
       ),
     info.file,
   );
+}
+
+/** Die Sicherungen liegen in `auto` (mit Projekt und Bildern), ihre kleine Liste in `autometa`. */
+const AUTO = ['auto', 'autometa'];
+
+/** Eintrag der Liste: alles außer dem Projekt (die Startseite lädt so keine Bilder). */
+function autoMeta({ id, project, owner, name, saved, handoff, time }) {
+  return { id, project: project && project.id, owner, name, saved: !!saved, handoff: handoff || null, time };
 }
 
 export function loadAutosave(id) {
@@ -136,7 +157,14 @@ export function loadAutosave(id) {
 }
 
 export function deleteAutosave(id) {
-  return run('readwrite', (tx) => tx.objectStore('auto').delete(id), ['auto']);
+  return run(
+    'readwrite',
+    (tx) => {
+      tx.objectStore('auto').delete(id);
+      tx.objectStore('autometa').delete(id);
+    },
+    AUTO,
+  );
 }
 
 /** Besitzer einer Übergabe an einen neuen Tab (kein Fenster) und ihre Kennung. */
@@ -148,12 +176,13 @@ const MAX_AGE = 14 * 24 * 3600 * 1000;
 
 /** Alle automatischen Sicherungen ohne Projektinhalt: [{ id, project (Kennung), owner, name, saved, handoff, time }]; zu alte fallen weg. */
 export async function listAutosaves() {
-  const all = await run('readonly', (tx, done) => req(tx.objectStore('auto').getAll()).then(done), ['auto']);
+  // nur die kleine Liste lesen – nicht die Projekte samt Bildern
+  const all = await run('readonly', (tx, done) => req(tx.objectStore('autometa').getAll()).then(done), ['autometa']);
   const now = Date.now();
   const out = [];
-  for (const { id, project, owner, name, saved, handoff, time } of all || []) {
-    if (now - time > MAX_AGE) deleteAutosave(id).catch(() => {});
-    else out.push({ id, project: project && project.id, owner, name, saved, handoff, time });
+  for (const m of all || []) {
+    if (now - m.time > MAX_AGE) deleteAutosave(m.id).catch(() => {});
+    else out.push(m);
   }
   return out.sort((a, b) => b.time - a.time);
 }

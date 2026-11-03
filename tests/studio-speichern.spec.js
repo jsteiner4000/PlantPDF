@@ -226,11 +226,14 @@ test('Automatische Sicherung: nach unerwartetem Ende beim Öffnen „Wiederherst
           new Promise((resolve) => {
             const open = indexedDB.open('pdfix-studio');
             open.onsuccess = () => {
-              const store = open.result.transaction('auto', 'readwrite').objectStore('auto');
-              store.getAll().onsuccess = (e) => {
-                for (const r of e.target.result) store.put({ ...r, owner: 'wbeendet' });
-                store.transaction.oncomplete = () => (open.result.close(), resolve());
-              };
+              const tx = open.result.transaction(['auto', 'autometa'], 'readwrite');
+              for (const name of ['auto', 'autometa']) {
+                const store = tx.objectStore(name);
+                store.getAll().onsuccess = (e) => {
+                  for (const r of e.target.result) store.put({ ...r, owner: 'wbeendet' });
+                };
+              }
+              tx.oncomplete = () => (open.result.close(), resolve());
             };
           }),
       );
