@@ -627,33 +627,11 @@ function start() {
     } catch {}
     if (!dirty) return true;
     await activateTab(tab);
-    // Dokumentation: Rückfrage im Stil der App (Speichern mit Ring und Haken)
-    if (studio)
-      try {
-        return (await command('confirmStudioClose', { tab, wait: true })) === true;
-      } catch {
-        return !usable(tab); // Ansicht abgestürzt: nichts mehr zu speichern
-      }
-    const { response } = await showMessage(baseOf(tab), {
-      type: 'warning',
-      title: APP_NAME,
-      message: `Möchten Sie die Änderungen an „${name || 'Dokument'}“ speichern?`,
-      detail: 'Ihre Änderungen gehen verloren, wenn Sie sie nicht speichern.',
-      buttons: ['Speichern', 'Nicht speichern', 'Abbrechen'],
-      defaultId: 0,
-      cancelId: 2,
-      noLink: true,
-    });
-    if (response === 2) return false;
-    if (response === 1) {
-      // bewusst verworfen: beim nächsten Start nichts zur Wiederherstellung anbieten
-      await command('discardRecovery', { tab, wait: true, timeout: 3000 }).catch(() => {});
-      return true;
-    }
+    // Rückfrage im Stil der App (PDF wie Dokumentation); Speichern zeigt die Karte mit Ring und Haken
     try {
-      return (await command('saveDocument', { tab, wait: true })) === true;
+      return (await command(studio ? 'confirmStudioClose' : 'confirmPdfClose', { tab, wait: true })) === true;
     } catch {
-      return false;
+      return !usable(tab); // Ansicht abgestürzt: nichts mehr zu speichern
     }
   }
 

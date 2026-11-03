@@ -233,6 +233,17 @@ const COMMANDS = {
   },
   /** Rückfrage beim Schließen einer Dokumentation (im Stil der App, Speichern mit Ring); true = schließen. */
   confirmStudioClose: async () => (app.studio.project ? app.studio.confirmClose() : true),
+  /**
+   * Rückfrage beim Schließen einer geänderten PDF (Tab, Fenster, Beenden) im Stil der App; „Speichern“
+   * zeigt die Karte mit Ring und Haken. Gespeichert oder verworfen: keine Wiederherstellungs-Kopie. true = schließen.
+   */
+  confirmPdfClose: async () => {
+    if (!app.session) return true;
+    await app.finishEdit();
+    const ok = await app.confirmDiscard();
+    if (ok) await app.recovery.clear();
+    return ok;
+  },
   /** Rückfrage beim Beenden: die PDF speichern (nicht „PDF erstellen“ der Dokumentation). */
   // (wie beim X einer Dokumentation: die Karte mit Ring und Haken, danach schließt der Tab)
   saveDocument: async () => {

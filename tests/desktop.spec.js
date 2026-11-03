@@ -223,40 +223,46 @@ test('Desktop-App: öffnen per Kommandozeile, bearbeiten, speichern, schließen'
     expect(await start.evaluate(() => window.pdfEditor.session.numPages)).toBeGreaterThan(0);
     page = start;
 
-    // 9. Ungespeicherte Änderung → native Rückfrage beim Schließen („Abbrechen“ hält das Fenster offen)
+    // 9. Ungespeicherte Änderung → Rückfrage im Stil der App beim Schließen (keine Systemmeldung);
+    //    „Abbrechen“ hält das Fenster offen
     await page.evaluate(() => {
       window.pdfEditor.session.version++;
       window.pdfEditor.updateHist();
     });
     await expect.poll(() => mainWindowTitle(app)).toContain('(Bearbeitet)');
-    await app.evaluate(({ dialog, BrowserWindow }) => {
-      globalThis.__asked = [];
-      dialog.showMessageBox = async (_win, options) => {
-        globalThis.__asked.push(options.message);
-        return { response: globalThis.__asked.length === 1 ? 2 : 1 }; // erst Abbrechen, dann Nicht speichern
-      };
-      globalThis.__plantpdf.win().close();
+    await app.evaluate(({ dialog }) => {
+      globalThis.__nativeAsked = 0;
+      dialog.showMessageBox = async () => (globalThis.__nativeAsked++, { response: 2 });
     });
-    await expect.poll(() => app.evaluate(() => globalThis.__asked.length)).toBe(1);
-    expect(await app.evaluate(() => globalThis.__asked[0])).toBe(
-      'Möchten Sie die Änderungen an „dokument.pdf“ speichern?',
-    );
+    await app.evaluate(() => globalThis.__plantpdf.win().close());
+    const ask = page.locator('.dlg', { hasText: 'Dokument schließen' });
+    await expect(ask).toContainText('Möchten Sie die Änderungen an dokument.pdf speichern');
+    await expect(ask.locator('.btn')).toHaveText(['Abbrechen', 'Nicht speichern', 'Speichern']);
+    await ask.locator('.btn', { hasText: 'Abbrechen' }).click();
+    await expect(ask).toHaveCount(0);
     expect(await app.evaluate(({ BrowserWindow }) => globalThis.__plantpdf.windows())).toBe(1);
+    expect(await app.evaluate(() => globalThis.__nativeAsked)).toBe(0);
 
     const closed = app.waitForEvent('close');
     await app.evaluate(({ BrowserWindow }) => globalThis.__plantpdf.win().close());
+    await ask.locator('.btn', { hasText: 'Nicht speichern' }).click();
     await closed;
     expect(readFileSync(pdf).equals(saved)).toBe(true); // „Nicht speichern“ ändert nichts
     // erwartet: nur die beiden CSP-Meldungen des absichtlich blockierten fetch() aus Schritt 2
     expect(errors.filter((e) => !e.includes('https://example.com/'))).toEqual([]);
   } finally {
-    // bei Fehlschlag keine native Rückfrage offen lassen („Nicht speichern“)
-    await app
-      .evaluate(({ dialog }) => (dialog.showMessageBox = async () => ({ response: 1 })))
-      .catch(() => {});
-    await app.close().catch(() => {});
+    await quit(app);
   }
 });
+
+/**
+ * Am Testende sicher beenden: offene Rückfragen der App (im Fenster, nicht nativ) würden das
+ * Schließen sonst aufhalten – deshalb ohne Rückfrage beenden.
+ */
+async function quit(app) {
+  await app.evaluate(({ app }) => app.exit(0)).catch(() => {});
+  await app.close().catch(() => {});
+}
 
 /** Startet die App mit eigenem Datenordner; liefert App, Fenster und Arbeitsordner. */
 async function launchWith(files) {
@@ -479,11 +485,7 @@ test('Desktop-App: Fehlerfälle, Absturz, Alt-Taste, Menü', async () => {
     await closed;
     expect(await app.evaluate(() => globalThis.__asked).catch(() => 'beendet')).toBe('beendet');
   } finally {
-    // bei Fehlschlag keine native Rückfrage offen lassen („Nicht speichern“)
-    await app
-      .evaluate(({ dialog }) => (dialog.showMessageBox = async () => ({ response: 1 })))
-      .catch(() => {});
-    await app.close().catch(() => {});
+    await quit(app);
   }
 });
 
@@ -775,34 +777,45 @@ test('Desktop-App: Tabs – zweite PDF im neuen Tab, umordnen, herausziehen, zur
     await expect.poll(() => names(a)).toEqual(['a.pdf', 'b.pdf']);
     expect(await tabCount(app)).toBe(4);
 
-    // Fenster schließen: Rückfrage für jeden geänderten Tab (beide), „Abbrechen“ beim zweiten hält offen
+    // Fenster schließen: Rückfrage (im Stil der App) für jeden geänderten Tab, „Abbrechen“ beim zweiten hält offen
     await makeDirty(a);
     await makeDirty(b);
     await app.evaluate(({ dialog }) => {
-      globalThis.__asked = [];
-      dialog.showMessageBox = async (_win, options) => {
-        globalThis.__asked.push(options.message);
-        return { response: globalThis.__asked.length === 1 ? 1 : 2 }; // erst „Nicht speichern“, dann „Abbrechen“
-      };
+      globalThis.__nativeAsked = 0;
+      dialog.showMessageBox = async () => (globalThis.__nativeAsked++, { response: 2 });
       globalThis.__plantpdf.win().close();
     });
-    await expect.poll(() => app.evaluate(() => globalThis.__asked.length)).toBe(2);
+    const asking = (p) => p.locator('.dlg', { hasText: 'Dokument schließen' });
+    let asked1 = null;
+    for (let i = 0; i < 150 && !asked1; i++) {
+      for (const p of [a, b]) if (await asking(p).count()) asked1 = p;
+      if (!asked1) await new Promise((r) => setTimeout(r, 100));
+    }
+    expect(asked1).not.toBe(null);
+    await asking(asked1).locator('.btn', { hasText: 'Nicht speichern' }).click();
+    const asked2 = asked1 === a ? b : a;
+    await expect(asking(asked2)).toBeVisible();
+    await asking(asked2).locator('.btn', { hasText: 'Abbrechen' }).click();
+    await expect(asking(asked2)).toHaveCount(0);
     expect(await app.evaluate(() => globalThis.__plantpdf.windows())).toBe(1);
+    expect(await app.evaluate(() => globalThis.__nativeAsked)).toBe(0);
 
     // X am geänderten Tab, „Speichern“: die Karte mit Ring und Haken, dann schließt der Tab
-    await expect.poll(() => mainWindowTitle(app)).toBe('b.pdf (Bearbeitet) – PlantPDF');
-    const before = readFileSync(paths[1]);
-    await app.evaluate(({ dialog }) => (dialog.showMessageBox = async () => ({ response: 0 })));
-    await b.locator('#tabs .xtab.on button').click();
-    const card = b.locator('.updx.saving');
+    const name = asked2 === a ? 'a.pdf' : 'b.pdf';
+    const file = asked2 === a ? paths[0] : paths[1];
+    await expect.poll(() => mainWindowTitle(app)).toBe(`${name} (Bearbeitet) – PlantPDF`);
+    const before = readFileSync(file);
+    await asked2.locator('#tabs .xtab.on button').click();
+    await asking(asked2).locator('.btn.primary', { hasText: 'Speichern' }).click();
+    const card = asked2.locator('.updx.saving');
     await expect(card).toBeVisible();
     await expect(card).toHaveClass(/done/);
-    await expect(card.locator('.updx-sub')).toHaveText('„b.pdf“');
+    await expect(card.locator('.updx-sub')).toHaveText(`„${name}“`);
     await expect.poll(() => tabCount(app)).toBe(3);
-    expect(readFileSync(paths[1]).equals(before)).toBe(false);
+    expect(readFileSync(file).equals(before)).toBe(false);
+    expect(await app.evaluate(() => globalThis.__nativeAsked)).toBe(0);
   } finally {
-    await app.evaluate(({ dialog }) => (dialog.showMessageBox = async () => ({ response: 1 }))).catch(() => {});
-    await app.close().catch(() => {});
+    await quit(app);
   }
 });
 

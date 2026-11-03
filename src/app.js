@@ -956,9 +956,11 @@ export class App {
   async confirmDiscard() {
     if (!this.session || !this.session.dirty) return true;
     const choice = await showDialog({
-      title: 'Änderungen speichern?',
+      title: 'Dokument schließen',
       icon: 'save',
-      body: `Das Dokument <b>${escapeHtml(this.file.name)}</b> enthält ungespeicherte Änderungen.`,
+      body: `Möchten Sie die Änderungen an <b>${escapeHtml(this.file.name)}</b> speichern, bevor Sie schließen?<br><span class="hint">${
+        this.file.handle ? `Gespeichert wird in <b>${escapeHtml(this.file.name)}</b>.` : 'Beim Speichern wählen Sie, wo die PDF abgelegt wird.'
+      } Ohne Speichern gehen die Änderungen verloren.</span>`,
       buttons: [
         { label: 'Abbrechen', value: 'cancel' },
         { label: 'Nicht speichern', value: 'discard' },
