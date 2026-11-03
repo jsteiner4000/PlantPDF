@@ -788,6 +788,18 @@ test('Desktop-App: Tabs – zweite PDF im neuen Tab, umordnen, herausziehen, zur
     });
     await expect.poll(() => app.evaluate(() => globalThis.__asked.length)).toBe(2);
     expect(await app.evaluate(() => globalThis.__plantpdf.windows())).toBe(1);
+
+    // X am geänderten Tab, „Speichern“: die Karte mit Ring und Haken, dann schließt der Tab
+    await expect.poll(() => mainWindowTitle(app)).toBe('b.pdf (Bearbeitet) – PlantPDF');
+    const before = readFileSync(paths[1]);
+    await app.evaluate(({ dialog }) => (dialog.showMessageBox = async () => ({ response: 0 })));
+    await b.locator('#tabs .xtab.on button').click();
+    const card = b.locator('.updx.saving');
+    await expect(card).toBeVisible();
+    await expect(card).toHaveClass(/done/);
+    await expect(card.locator('.updx-sub')).toHaveText('„b.pdf“');
+    await expect.poll(() => tabCount(app)).toBe(3);
+    expect(readFileSync(paths[1]).equals(before)).toBe(false);
   } finally {
     await app.evaluate(({ dialog }) => (dialog.showMessageBox = async () => ({ response: 1 }))).catch(() => {});
     await app.close().catch(() => {});

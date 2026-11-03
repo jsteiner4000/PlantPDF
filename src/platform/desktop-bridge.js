@@ -234,8 +234,9 @@ const COMMANDS = {
   /** Rückfrage beim Schließen einer Dokumentation (im Stil der App, Speichern mit Ring); true = schließen. */
   confirmStudioClose: async () => (app.studio.project ? app.studio.confirmClose() : true),
   /** Rückfrage beim Beenden: die PDF speichern (nicht „PDF erstellen“ der Dokumentation). */
+  // (wie beim X einer Dokumentation: die Karte mit Ring und Haken, danach schließt der Tab)
   saveDocument: async () => {
-    const ok = app.session ? await app.saveDocument() : false;
+    const ok = app.session ? await app.saveDocument({ big: true }) : false;
     if (ok) await app.recovery.clear();
     return ok;
   },
