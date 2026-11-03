@@ -26,7 +26,7 @@ import { THEMES, readTheme, setTheme } from './ui/theme.js';
 import { fileErrorReason, notifyDocumentState, reviveFileHandle } from './platform/desktop-bridge.js';
 import { keepTopBarFitting } from './platform/title-bar.js';
 import { Recovery } from './ui/recovery.js';
-import { saveFlash } from './ui/save-progress.js';
+import { saveFlash, saveProgress } from './ui/save-progress.js';
 import { STUDIO_TEMPLATES, Studio, deleteDraft, deleteTemplate, ensureBarlow, listAutosaves, listDrafts, listTemplates, templatePreview } from './studio/studio.js';
 
 /**
@@ -966,7 +966,7 @@ export class App {
       ],
       cancelValue: 'cancel',
     });
-    return choice === 'cancel' || choice == null ? false : choice === 'save' ? this.save() : true;
+    return choice === 'cancel' || choice == null ? false : choice === 'save' ? this.saveDocument({ big: true }) : true;
   }
   async onDrop(ev) {
     ev.preventDefault();
@@ -1111,12 +1111,17 @@ export class App {
     if (this.view === 'studio') return this.studio.save();
     return this.saveDocument();
   }
-  /** Die geöffnete PDF speichern – unabhängig vom sichtbaren Bereich (Rückfrage beim Beenden). */
-  async saveDocument() {
+  /**
+   * Die geöffnete PDF speichern – unabhängig vom sichtbaren Bereich (Rückfrage beim Beenden).
+   * Bestätigung: kurz der kleine Haken; `big` (vor dem Schließen): die Karte mit Ring und Haken.
+   */
+  async saveDocument({ big = false } = {}) {
     if (!this.session) return false;
     if (!this.file.handle) return this.saveAs();
+    const progress = big ? saveProgress(`„${this.file.name.replace(/\.pdf$/i, '')}“ wird gespeichert`, 'Wird gespeichert …') : null;
+    const run = progress ? (fn) => fn() : (fn) => withBusy(fn, 100);
     try {
-      return await withBusy(async () => {
+      return await run(async () => {
         const bytes = await this.bytesForSave();
         const handle = this.file.handle;
         if (
@@ -1129,11 +1134,13 @@ export class App {
         await writable.write(bytes);
         await writable.close();
         this.markSaved();
-        saveFlash(this.file.name);
         idbPut('recent', this.file.name, { name: this.file.name, handle, time: Date.now() });
+        if (progress) await progress.done(this.file.name);
+        else saveFlash(this.file.name);
         return true;
-      }, 100);
+      });
     } catch (err) {
+      progress?.fail();
       return err && err.message === 'perm'
         ? this.saveAs()
         : (toast(
@@ -1161,8 +1168,10 @@ export class App {
         if (err && err.name === 'AbortError') return false;
         handle = null;
       }
+      // neuer Speicherort: die Karte mit Ring und Haken
+      const progress = handle ? saveProgress(`„${handle.name.replace(/\.pdf$/i, '')}“ wird gespeichert`, 'Wird gespeichert …') : null;
       if (handle)
-        return withBusy(async () => {
+        return (async () => {
           const data = await this.bytesForSave();
           const writable = await handle.createWritable();
           await writable.write(data);
@@ -1171,10 +1180,11 @@ export class App {
           $('#docName').textContent = handle.name;
           document.title = handle.name + ' – PlantPDF';
           this.markSaved();
-          saveFlash(handle.name);
           idbPut('recent', handle.name, { name: handle.name, handle, time: Date.now() });
+          await progress.done(handle.name);
           return true;
-        }, 100).catch((err) => {
+        })().catch((err) => {
+          progress.fail();
           toast(
             'Speichern nicht möglich' + (fileErrorReason(err) ? ': ' + fileErrorReason(err) : '.'),
             'err',

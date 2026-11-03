@@ -1,7 +1,8 @@
 /**
  * Dokumentation speichern wie in Office: Speichern schreibt in die zugehörige PDF (nur beim ersten
  * Mal ein Speicherort), „Weiterbearbeiten“ aus einer PDF behält deren Namen und Datei, Schließen
- * mit ungespeicherten Änderungen fragt, nach dem Speichern kurz ein Haken, und die automatische
+ * mit ungespeicherten Änderungen fragt (Speichern zeigt die Karte mit Ring und Haken, ebenso beim
+ * ersten Speicherort; zwischendurch nur ein kleiner Haken), und die automatische
  * Sicherung bleibt unsichtbar – sie wird erst nach einem unerwarteten Ende beim Öffnen angeboten.
  */
 import { test, expect } from '@playwright/test';
@@ -113,18 +114,24 @@ test('Schließen: Rückfrage bei Änderungen, „Nicht speichern“ hinterlässt
   }
 });
 
-test('Speichern: einmal Speicherort wählen, danach direkt in dieselbe PDF; kurz der Haken „Gespeichert“', async ({ browser }) => {
+test('Speichern: einmal Speicherort wählen (Karte mit Haken), danach direkt in dieselbe PDF (kleiner Haken)', async ({ browser }) => {
   const { page, context, errors } = await launch(browser, 'neubau');
   try {
     await desktopLike(page, context);
     await newTech(page);
     await page.evaluate(() => (window.__nextName = 'Station Nord.pdf'));
     await page.keyboard.press('Control+s');
-    await expect.poll(() => st(page, () => Object.keys(window.__files))).toEqual(['Station Nord.pdf']);
+    // neuer Speicherort: die Karte mit Ring und leuchtendem Haken
+    const card = page.locator('.updx.saving');
+    await expect(card).toBeVisible();
+    await expect(card).toHaveClass(/done/);
+    await expect(card.locator('h3')).toHaveText('Gespeichert');
+    await expect(card).toHaveCount(0);
+    await expect(page.locator('.savefx')).toHaveCount(0);
+    expect(await st(page, () => Object.keys(window.__files))).toEqual(['Station Nord.pdf']);
     expect(await st(page, () => window.__picks)).toBe(1);
     // Reiter heißt wie die Datei, gespeichert
     await expect(page.locator('#prjName')).toHaveText('Station Nord');
-    await expect(page.locator('.savefx')).toBeVisible(); // kurzer Haken „Gespeichert“ unter Speichern
     await expect(page.locator('#prjDirty')).toBeHidden();
 
     // weitere Änderung: Strg+S schreibt ohne Dialog in dieselbe Datei
@@ -133,20 +140,26 @@ test('Speichern: einmal Speicherort wählen, danach direkt in dieselbe PDF; kurz
     await expect(page.locator('#prjDirty')).toBeVisible();
     await page.keyboard.press('Control+s');
     await expect(page.locator('#prjDirty')).toBeHidden();
+    // zwischendurch gespeichert: nur der kleine Haken unter „Speichern“ – deckt nichts ab, ist gleich weg
+    const check = page.locator('.savefx');
+    await expect(check).toHaveText('Gespeichert');
+    await expect(check).toHaveAttribute('title', 'Station Nord.pdf');
+    expect(await check.evaluate((el) => getComputedStyle(el).pointerEvents)).toBe('none');
+    await expect(page.locator('.updx.saving')).toHaveCount(0);
+    await expect(check).toHaveCount(0, { timeout: 3000 });
     expect(await st(page, () => window.__picks)).toBe(1);
     expect(await st(page, () => window.__files['Station Nord.pdf'].length)).not.toBe(size);
 
-    // Schließen mit Änderungen → Speichern: schließt, kurz der Haken
+    // Schließen mit Änderungen → Speichern: Karte mit Ring und Haken, dann zu
     await st(page, () => window.pdfEditor.studio.change('Titel', (p) => (p.title = { de: 'Pumpenstation Nord 2', en: '' })));
     await page.locator('#bPrjClose').click();
     await expect(page.locator('.dlg .hint')).toContainText('Station Nord.pdf');
     await page.locator('.dlg .btn.primary', { hasText: 'Speichern' }).click();
-    const check = page.locator('.savefx');
-    await expect(check).toHaveText('Gespeichert');
-    await expect(check).toHaveAttribute('title', 'Station Nord.pdf');
-    // klein, ohne den Bildschirm abzudecken, nach gut einer Sekunde wieder weg
-    expect(await check.evaluate((el) => getComputedStyle(el).pointerEvents)).toBe('none');
-    await expect(check).toHaveCount(0, { timeout: 3000 });
+    await expect(card).toBeVisible();
+    await expect(card.locator('h3')).toContainText('wird gespeichert');
+    await expect(card).toHaveClass(/done/);
+    await expect(card.locator('.updx-sub')).toHaveText('„Station Nord.pdf“');
+    await expect(card).toHaveCount(0);
     await expect(page.locator('#prjTab')).toBeHidden();
     expect(await st(page, () => window.__picks)).toBe(1);
     // unter „Zuletzt bearbeitet“ mit dem Namen der Datei
@@ -167,6 +180,7 @@ test('Weiterbearbeiten aus einer PDF: Name der PDF bleibt, Speichern schreibt oh
     await page.evaluate(() => (window.__nextName = 'Müller 2026.pdf'));
     await page.keyboard.press('Control+s');
     await expect(page.locator('#prjDirty')).toBeHidden();
+    await expect(page.locator('.updx.saving')).toHaveCount(0); // Karte (neuer Speicherort) ist durch
     await page.locator('#bPrjClose').click();
     await expect(page.locator('#prjTab')).toBeHidden();
 

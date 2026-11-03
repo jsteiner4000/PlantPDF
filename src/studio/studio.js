@@ -16,7 +16,7 @@ import { idbPut } from '../storage/idb.js';
 import { fileErrorReason, notifyDocumentState, reviveFileHandle } from '../platform/desktop-bridge.js';
 import { liveWindows, windowId } from '../storage/recovery.js';
 import { when } from '../ui/recovery.js';
-import { saveFlash } from '../ui/save-progress.js';
+import { saveFlash, saveProgress } from '../ui/save-progress.js';
 import {
   ACCESS_BLOCKS,
   DOC_PARTS,
@@ -588,7 +588,7 @@ export class Studio {
       return true;
     }
     if (choice !== 'save') return false;
-    return this.save();
+    return this.save({ big: true });
   }
 
   async close() {
@@ -2614,11 +2614,12 @@ ${toPdf}
    * Speichern (Strg+S, Schaltfläche, Rückfrage beim Schließen): die PDF samt Dokumentation in die
    * zugehörige Datei schreiben – ohne Nachfrage, wenn sie bekannt ist (geöffnet aus einer PDF oder
    * schon einmal gespeichert); sonst einmal den Speicherort wählen. `as`: immer neu wählen
-   * („Speichern unter“). Danach kurz der Haken „Gespeichert“ unter der Schaltfläche.
+   * („Speichern unter“). Bestätigung: beim Zwischendurch-Speichern kurz der kleine Haken unter der
+   * Schaltfläche; an einem neu gewählten Ort und vor dem Schließen (`big`) die Karte mit Ring und Haken.
    * Im Browser ohne PDF-Erzeugung: Stand unter „Zuletzt bearbeitet“ ablegen; „Speichern unter“
    * öffnet dort den Druckdialog („Als PDF speichern“).
    */
-  async save({ as = false } = {}) {
+  async save({ as = false, big = false } = {}) {
     if (!this.project) return false;
     clearTimeout(this.saveTimer);
     const snap = this.snap;
@@ -2628,14 +2629,17 @@ ${toPdf}
         await this.print();
         return false;
       }
+      const progress = big ? saveProgress(`„${this.label()}“ wird gespeichert`, 'Wird gesichert …') : null;
       try {
         await this.commitSaved(snap);
       } catch (err) {
         console.error('Speichern', err);
+        progress?.fail();
         toast('Die Dokumentation konnte nicht gespeichert werden.', 'err', 6000);
         return false;
       }
-      saveFlash(this.label());
+      if (progress) await progress.done(this.label());
+      else saveFlash(this.label());
       return true;
     }
     // Passwörter: einmal je geöffneter Dokumentation fragen (bei „Speichern unter“ neu)
@@ -2677,9 +2681,11 @@ ${toPdf}
       } catch (err) {
         if (err && err.name === 'AbortError') return false;
       }
+      big ||= !!handle; // neuer Speicherort gewählt
     }
+    const progress = big ? saveProgress(`„${(handle ? handle.name : name).replace(/\.pdf$/i, '')}“ wird gespeichert`) : null;
     try {
-      const bytes = await withBusy(() => this.buildPdf(show), 100);
+      const bytes = await (progress ? this.buildPdf(show) : withBusy(() => this.buildPdf(show), 100));
       if (handle) {
         const writable = await handle.createWritable();
         await writable.write(bytes);
@@ -2692,11 +2698,13 @@ ${toPdf}
         this.file = { name, handle: null };
       }
       await this.commitSaved(snap);
-      if (handle) saveFlash(handle.name);
-      else toast('Die PDF wurde in den Download-Ordner gespeichert.');
+      if (progress) await progress.done(this.file.name);
+      else if (handle) saveFlash(handle.name);
+      if (!handle) toast('Die PDF wurde in den Download-Ordner gespeichert.');
       return true;
     } catch (err) {
       console.error('Speichern', err);
+      progress?.fail();
       toast(fileErrorReason(err) ? 'Speichern nicht möglich: ' + fileErrorReason(err) : failMessage(err), 'err', 6000);
       return false;
     }
