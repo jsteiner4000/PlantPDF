@@ -84,6 +84,12 @@ test('Messen: Länge sofort, Lupe, als Maßlinie behalten; Bezugsstrecke nachzie
     await page.mouse.up();
     await expect(page.locator('#sdLoupe')).toHaveCount(0);
     await expect(page.locator('#sdArm')).toContainText('Länge: 50 m');
+    // nach dem Loslassen hängt der zweite Punkt nicht mehr an der Maus
+    const drawn = () => page.evaluate(() => JSON.stringify(window.pdfEditor.studio.draft.pts));
+    const before = await drawn();
+    await page.mouse.move(...(await point(0.7, 0.6)), { steps: 5 });
+    expect(await drawn()).toBe(before);
+    await expect(page.locator('#sdArm')).toContainText('Länge: 50 m');
     expect((await site()).shapes).toHaveLength(0);
     await page.locator('#sdArm [data-keep]').click();
     s = await site();

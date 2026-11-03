@@ -124,13 +124,13 @@ export function notifyDocumentState(force = false) {
   stateTimer = setTimeout(() => {
     stateTimer = 0;
     const session = app.session;
-    // „Dokumentation erstellen“: Fenstertitel = Projekt; Entwürfe sichern sich selbst (nie „Bearbeitet“).
+    // „Dokumentation erstellen“: Fenstertitel = Projekt (bzw. seine PDF), „Bearbeitet“ bis gespeichert.
     // Jeder Tab hat genau ein Dokument – das Projekt zählt auch, wenn es gerade nicht sichtbar ist.
     const project = app.studio.project && (studioActive() || !session) ? app.studio.title() : '';
     desktop.setState({
       hasDocument: !!session || !!project,
       name: project || (session && app.file ? app.file.name : ''),
-      dirty: !project && !!(session && session.dirty),
+      dirty: project ? app.studio.dirty : !!(session && session.dirty),
       stripActive: !!app.stripActive,
       pdfOpen: !!session,
       siteOpen: !!(app.studio.project && app.studio.project.sections.some((s) => s.type === 'site')),
@@ -167,7 +167,9 @@ const COMMANDS = {
   restoreRecovery: (data) => settle(data && typeof data.id === 'string' && app.recovery.restoreById(data.id)),
   setWorkspace: (ws) => app.switchWorkspace(ws),
   /** Nur im ersten Tab nach dem Start: gesicherte Kopien anbieten. */
-  offerRecovery: () => app.recovery.offer(),
+  offerRecovery: () => app.offerRecovery(),
+  /** Vor dem Nach-vorn-Holen (Hauptprozess): erst antworten, wenn die Ansicht gezeichnet hat. */
+  painted: () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)))),
   /** Darstellung in einem anderen Tab geändert. */
   themeChanged: () => applyTheme(),
   /** Beim Start gefunden: dezenter Hinweis unten rechts (nur im installierten Programm). */
@@ -216,7 +218,12 @@ const COMMANDS = {
   printed: (name) => toast(`„${String(name || '')}“ wurde an den Drucker gesendet.`),
   /** Vor dem Schließen: offene Textbearbeitung übernehmen und den echten Zustand liefern. */
   queryDirty: async () => {
-    if (app.studio.project) await app.studio.flush(); // letzten Stand des Entwurfs sichern
+    if (app.studio.project) {
+      await app.studio.flush(); // letzten Stand automatisch sichern
+      // Dokumentation: die Rückfrage stellt die App selbst (confirmStudioClose)
+      if (app.studio.dirty) return { dirty: true, studio: true, name: app.studio.label() };
+      await app.studio.confirmClose(); // ohne Änderungen: nur die automatische Sicherung aufräumen
+    }
     if (!app.session) return false;
     await app.finishEdit();
     // nicht (mehr) geändert, z. B. bis zum gespeicherten Stand rückgängig: keine Kopie zurücklassen
@@ -224,6 +231,8 @@ const COMMANDS = {
     // Name für die Rückfrage: die PDF, auch wenn gerade die Dokumentation sichtbar ist
     return app.session && app.session.dirty ? { dirty: true, name: app.file ? app.file.name : '' } : false;
   },
+  /** Rückfrage beim Schließen einer Dokumentation (im Stil der App, Speichern mit Ring); true = schließen. */
+  confirmStudioClose: async () => (app.studio.project ? app.studio.confirmClose() : true),
   /** Rückfrage beim Beenden: die PDF speichern (nicht „PDF erstellen“ der Dokumentation). */
   saveDocument: async () => {
     const ok = app.session ? await app.saveDocument() : false;

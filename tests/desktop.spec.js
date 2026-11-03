@@ -13,6 +13,7 @@ import { spawn } from 'node:child_process';
 import {
   chmodSync,
   copyFileSync,
+  writeFileSync,
   mkdtempSync,
   readFileSync,
   existsSync,
@@ -20,6 +21,7 @@ import {
   symlinkSync,
 } from 'node:fs';
 import { createRequire } from 'node:module';
+import { inflateSync } from 'node:zlib';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -621,6 +623,85 @@ test('Desktop-App: Dokumentation erstellen – PDF mit Projektdaten, wieder bear
     await expect.poll(() => page.evaluate(() => window.pdfEditor.studio.armed)).toBe('tool:fence');
     await expect(page.locator('#sdArm')).toContainText('Eckpunkte');
     await page.keyboard.press('Escape');
+
+    // Fenster schließen: die geänderte Dokumentation fragt im Stil der App (keine Systemmeldung)
+    await app.evaluate(({ dialog }) => {
+      globalThis.__nativeAsked = 0;
+      dialog.showMessageBox = async () => (globalThis.__nativeAsked++, { response: 2 });
+    });
+    await expect(page.locator('.xtab.on .dot')).toBeVisible(); // Tab: ungespeicherte Änderungen
+    await app.evaluate(() => globalThis.__plantpdf.win().close());
+    const ask = page.locator('.dlg', { hasText: 'Dokumentation schließen' });
+    await expect(ask).toBeVisible();
+    await ask.locator('.btn', { hasText: 'Abbrechen' }).click();
+    await expect.poll(() => tabCount(app)).toBe(2); // abgebrochen: alles bleibt offen
+    expect(await app.evaluate(() => globalThis.__nativeAsked)).toBe(0);
+    expect(errors).toEqual([]);
+    // „Nicht speichern“: das (letzte) Fenster schließt, PlantPDF endet
+    const ended = app.waitForEvent('close');
+    await app.evaluate(() => globalThis.__plantpdf.win().close());
+    await page.locator('.dlg .btn', { hasText: 'Nicht speichern' }).click();
+    await ended;
+  } finally {
+    await app.close();
+  }
+});
+
+test('Desktop-App: Weiterbearbeiten aus einer PDF – eigener Tab mit dem Namen der Datei, Strg+S ohne Dialog', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'pdf-editor-studio-'));
+  const file = path.join(dir, 'Anlage Nord.pdf');
+  const app = await electron.launch({
+    executablePath: ELECTRON,
+    args: [ROOT, ...extraArgs],
+    env: { ...process.env, PDF_EDITOR_USER_DATA: path.join(dir, 'userdata') },
+    cwd: ROOT,
+  });
+  try {
+    const page = await app.firstWindow();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.waitForFunction(() => window.pdfEditor && window.pdfEditor.library.items.size >= 10);
+    // eine mit PlantPDF erstellte Dokumentation als Datei
+    const b64 = await page.evaluate(async (p) => {
+      const st = window.pdfEditor.studio;
+      await st.open(p);
+      const bytes = await st.buildPdf();
+      await st.commitSaved();
+      await st.close();
+      let s = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+      return btoa(s);
+    }, exampleProject());
+    writeFileSync(file, Buffer.from(b64, 'base64'));
+    const original = readFileSync(file);
+    await app.evaluate(({ dialog, Menu }, file) => {
+      globalThis.__saveAsked = 0;
+      dialog.showSaveDialog = async () => (globalThis.__saveAsked++, { canceled: true });
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] });
+      Menu.getApplicationMenu().getMenuItemById('open').click();
+    }, file);
+    await waitForDocument(page, 'Anlage Nord.pdf');
+    await page.locator('#sdOffer .btn.primary').click();
+    // eigener Tab, benannt wie die Datei; die unveränderte PDF-Ansicht derselben Datei schließt
+    await expect.poll(() => app.evaluate(() => globalThis.__plantpdf.tabs().map((t) => t.name))).toEqual(['Anlage Nord']);
+    const docs = await activePage(app);
+    expect(docs).not.toBe(page);
+    await docs.waitForFunction(() => window.pdfEditor.studio.project);
+    await expect(docs.locator('.xtab.on .nm')).toHaveText('Anlage Nord');
+    await expect.poll(() => mainWindowTitle(app)).toBe('Anlage Nord – PlantPDF');
+    // ändern, Strg+S: schreibt in dieselbe Datei, ohne Speichern-Dialog
+    await docs.evaluate(() => window.pdfEditor.studio.change('Titel', (p) => (p.title = { de: 'Anschlussplan Nord', en: '' })));
+    await expect(docs.locator('.xtab.on .dot')).toBeVisible();
+    await expect.poll(() => mainWindowTitle(app)).toBe('Anlage Nord (Bearbeitet) – PlantPDF');
+    await docs.keyboard.press('Control+s');
+    await expect(docs.locator('.xtab.on .dot')).toHaveCount(0);
+    expect(readFileSync(file).equals(original)).toBe(false);
+    // die Datei enthält wieder die Dokumentation – mit der Änderung
+    const saved = await PDFDocument.load(readFileSync(file));
+    const stream = saved.context.lookup(saved.catalog.get(PDFName.of('PDFixProject')));
+    const embedded = JSON.parse(new TextDecoder().decode(inflateSync(Buffer.from(stream.getContents()))));
+    expect(embedded.title.de).toBe('Anschlussplan Nord');
+    expect(await app.evaluate(() => globalThis.__saveAsked)).toBe(0);
     expect(errors).toEqual([]);
   } finally {
     await app.close();

@@ -102,8 +102,12 @@ test('Bedienung: Baugruppe ziehen, Rückgängig, Eigenschaften, Sprache, Entwurf
     // Sprache, Schrift und Logo stehen nur in den Projekteigenschaften, nicht auch im Werkzeugband
     await expect(page.locator('.rb[data-act="lang"], .rb[data-act="font"], .rb[data-act="logo"]')).toHaveCount(0);
 
-    // Entwurf: auf der Startseite unter „Dokumentationen“, von dort wieder zu öffnen
-    // Bereich „Dokumentation“: Startseite mit „Zuletzt bearbeitet“
+    // Ungespeichert: Punkt am Reiter, nicht unter „Zuletzt bearbeitet“; Strg+S speichert (im Browser
+    // ohne PDF-Erzeugung als gespeicherter Stand der App)
+    await expect(page.locator('#prjDirty')).toBeVisible();
+    await page.keyboard.press('Control+s');
+    await expect(page.locator('#prjDirty')).toBeHidden();
+    // Bereich „Dokumentation“: Startseite mit „Zuletzt bearbeitet“, von dort wieder zu öffnen
     await page.locator('#tHome').click();
     await expect(page.locator('#hsRecent h3')).toHaveText('Zuletzt bearbeitet');
     const row = page.locator('#recentList .ri', { hasText: 'Anschlussplan Testaufbau' });

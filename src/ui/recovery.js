@@ -12,7 +12,7 @@ import { showDialog, toast } from './dialogs.js';
 const QUIET = 2000;
 const MIN_GAP = 3000;
 
-const when = (time) => {
+export const when = (time) => {
   const d = new Date(time);
   const today = new Date().toDateString() === d.toDateString();
   const clock = d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });

@@ -147,7 +147,11 @@ test('Eigene Vorlage: speichern, auf der Startseite neu anlegen, entfernen', asy
     await expect(tile).toHaveCount(1);
     await expect(tile).toContainText('Meine Vorlage');
     const before = await page.evaluate(() => window.pdfEditor.studio.project.id);
+    await expect.poll(() => page.evaluate(() => window.pdfEditor.studio.dirty)).toBe(true);
     await tile.click();
+    // die geänderte Anleitung ist nicht gespeichert: Rückfrage im Stil der App
+    await page.locator('.dlg .btn', { hasText: 'Nicht speichern' }).click();
+    await expect.poll(() => page.evaluate(() => window.pdfEditor.studio.project.id)).not.toBe(before);
     await expect(page.locator('#prjTab')).toHaveClass(/on/);
     const after = await page.evaluate(() => ({ id: window.pdfEditor.studio.project.id, title: window.pdfEditor.studio.project.title.de, design: window.pdfEditor.studio.project.design }));
     expect(after.id).not.toBe(before);

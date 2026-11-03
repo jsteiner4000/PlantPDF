@@ -88,6 +88,16 @@ export function loadCopy(id) {
   });
 }
 
+/** Kennungen der Fenster, die gerade laufen (deren Lock gehalten wird). */
+export async function liveWindows() {
+  const live = new Set([windowId]);
+  try {
+    const state = navigator.locks ? await navigator.locks.query() : null;
+    if (state) for (const l of state.held) if (l.name.startsWith(LOCK)) live.add(l.name.slice(LOCK.length));
+  } catch {}
+  return live;
+}
+
 /**
  * Kopien aus beendeten Fenstern, neueste zuerst (ohne Inhalt). Zu alte werden dabei gelöscht.
  * `except`: eigene Kennung (gehört zum laufenden Fenster).

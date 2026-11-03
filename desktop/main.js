@@ -88,8 +88,8 @@ function start() {
    * aus dem Fenster ziehen (neues Fenster) und in ein anderes Fenster ziehen; die Ansicht wandert
    * dabei mit, samt Rückgängig-Verlauf.
    *
-   * @typedef {{ id: number, base: BaseWindow, tabs: Tab[], active: Tab | null, allowClose: boolean, closing: boolean }} Win
-   * @typedef {{ id: number, view: WebContentsView, win: Win, state: object, ready: boolean, gone: boolean, closed: boolean, open: object | null, primary: boolean }} Tab
+   * @typedef {{ id: number, base: BaseWindow, tabs: Tab[], active: Tab | null, front: Tab | null, swap: number, shown: Promise<void> | null, allowClose: boolean, closing: boolean }} Win
+   * @typedef {{ id: number, view: WebContentsView, win: Win, state: object, ready: boolean, gone: boolean, closed: boolean, open: object | null, primary: boolean, waiting: Function[] }} Tab
    */
   /** @type {Win[]} */
   const wins = [];
@@ -180,7 +180,7 @@ function start() {
       ...(CUSTOM_FRAME ? { titleBarStyle: 'hidden', titleBarOverlay: colors.overlay } : {}),
     });
     /** @type {Win} */
-    const w = { id: nextId++, base, tabs: [], active: null, allowClose: false, closing: false };
+    const w = { id: nextId++, base, tabs: [], active: null, front: null, swap: 0, shown: null, allowClose: false, closing: false };
     wins.push(w);
     if (first) {
       // immer bildschirmfüllend starten (maximiert, Taskleiste bleibt sichtbar; F11 = echtes Vollbild)
@@ -241,10 +241,11 @@ function start() {
     });
     view.setBackgroundColor(frameColors().background);
     /** @type {Tab} */
-    const tab = { id: nextId++, view, win: w, state: emptyState(), ready: false, gone: false, closed: false, open, primary };
+    const tab = { id: nextId++, view, win: w, state: emptyState(), ready: false, gone: false, closed: false, open, primary, waiting: [] };
     if (open) Object.assign(tab.state, placeholder(open));
     w.tabs.splice(Math.max(0, Math.min(index, w.tabs.length)), 0, tab);
-    w.base.contentView.addChildView(view);
+    // ganz nach hinten: lädt verdeckt unter der sichtbaren Ansicht (activateTab holt ihn nach vorn)
+    w.base.contentView.addChildView(view, 0);
     layout(w);
     hookTab(tab);
     view.webContents.setVisualZoomLevelLimits(1, 1);
@@ -265,15 +266,45 @@ function start() {
     projectId: open.kind === 'draft' ? open.id : '',
   });
 
+  /**
+   * Tab nach vorn holen – ohne schwarzes Zwischenbild. Eine Ansicht, die gerade erst lädt oder
+   * verborgen war, hat noch kein Bild (Electron zeigt bis dahin nur die Hintergrundfarbe). Sie wird
+   * deshalb zuerst verdeckt unter der bisherigen Ansicht sichtbar, zeichnet dort und kommt erst dann
+   * nach vorn; die bisherige verschwindet danach. Ergebnis: Promise, sobald der Tab vorn ist.
+   */
   function activateTab(tab) {
     const w = tab.win;
+    const prev = w.front;
     w.active = tab;
-    for (const t of w.tabs) t.view.setVisible(t === tab);
-    // nach vorn (Reihenfolge der Ansichten)
-    w.base.contentView.addChildView(tab.view);
-    if (usable(tab) && w.base.isFocused()) tab.view.webContents.focus();
+    const token = ++w.swap;
     updateTitle(w);
     broadcastTabs(w);
+    const bringFront = () => {
+      if (w.swap !== token || tab.closed || !alive(w)) return;
+      w.base.contentView.addChildView(tab.view); // nach vorn (Reihenfolge der Ansichten)
+      w.front = tab;
+      w.shown = null;
+      for (const t of w.tabs) if (t !== tab && !t.closed) t.view.setVisible(false);
+      if (usable(tab) && w.base.isFocused()) tab.view.webContents.focus();
+    };
+    tab.view.setVisible(true);
+    // nichts zu verdecken (erster Tab, vorderer geschlossen) oder schon vorn: sofort
+    if (!prev || prev === tab || prev.closed || !usable(prev) || tab.gone) {
+      bringFront();
+      return Promise.resolve();
+    }
+    const shown = whenPainted(tab)
+      .then(bringFront)
+      .finally(() => w.shown === shown && (w.shown = null));
+    w.shown = shown;
+    return shown;
+  }
+
+  /** Erstes Bild des Tabs ist gezeichnet (geladen und zwei Bildwechsel); höchstens ein paar Sekunden. */
+  function whenPainted(tab) {
+    const loaded = tab.ready ? Promise.resolve() : new Promise((resolve) => tab.waiting.push(resolve));
+    const painted = loaded.then(() => (usable(tab) ? command('painted', { tab, wait: true, timeout: 1500 }).catch(() => {}) : null));
+    return Promise.race([painted, new Promise((resolve) => setTimeout(resolve, 6000))]);
   }
 
   function focusTab(tab) {
@@ -291,6 +322,7 @@ function start() {
   function disposeTab(tab) {
     if (tab.closed) return;
     tab.closed = true;
+    for (const resolve of tab.waiting.splice(0)) resolve();
     for (const [replyId, done] of replies)
       if (done.tab === tab) {
         replies.delete(replyId);
@@ -310,10 +342,15 @@ function start() {
     if (i < 0) return;
     const ws = wsOf(tab);
     w.tabs.splice(i, 1);
-    disposeTab(tab);
     if (!w.tabs.length) createTab(w);
     else if (w.active === tab) activateNear(w, i, ws);
     broadcastTabs(w);
+    // die Ansicht bleibt stehen, bis die nächste gezeichnet vorn ist (kein schwarzes Zwischenbild)
+    const settled = (seen = null) => {
+      const cur = w.front === tab ? w.shown : null;
+      return cur && cur !== seen ? cur.then(() => settled(cur)) : null;
+    };
+    Promise.resolve(settled()).finally(() => disposeTab(tab));
   }
 
   /** Art eines Tabs und sein Arbeitsbereich (die Startseite gehört zum dort gewählten Bereich). */
@@ -581,13 +618,22 @@ function start() {
     if (!usable(tab)) return true;
     let dirty = tab.state.dirty;
     let name = tab.state.name;
+    let studio = false;
     try {
       const reply = await command('queryDirty', { tab, wait: true, timeout: 5000 });
       dirty = !!(reply && (reply === true || reply.dirty));
+      studio = !!(reply && reply.studio);
       if (reply && typeof reply.name === 'string' && reply.name) name = reply.name;
     } catch {}
     if (!dirty) return true;
-    activateTab(tab);
+    await activateTab(tab);
+    // Dokumentation: Rückfrage im Stil der App (Speichern mit Ring und Haken)
+    if (studio)
+      try {
+        return (await command('confirmStudioClose', { tab, wait: true })) === true;
+      } catch {
+        return !usable(tab); // Ansicht abgestürzt: nichts mehr zu speichern
+      }
     const { response } = await showMessage(baseOf(tab), {
       type: 'warning',
       title: APP_NAME,
@@ -838,6 +884,7 @@ function start() {
   async function onRendererGone(tab) {
     tab.gone = true;
     tab.ready = false;
+    for (const resolve of tab.waiting.splice(0)) resolve();
     for (const [replyId, done] of replies)
       if (done.tab === tab) {
         replies.delete(replyId);
@@ -1047,6 +1094,7 @@ function start() {
       if (!tab) return;
       tab.ready = true;
       tab.gone = false;
+      for (const resolve of tab.waiting.splice(0)) resolve();
       broadcastTabs(tab.win);
       if (tab.workspace) {
         command('setWorkspace', { tab, data: tab.workspace });

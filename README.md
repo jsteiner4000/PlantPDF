@@ -69,7 +69,8 @@ src/
                           Lageplan (site.js; Werkzeuge site-tools.js, Maße geo.js), Fotos (photos.js,
                           exif.js), Zugangsdaten (access.js),
                           Anleitungen (chapters.js: Bausteine, Seitenumbruch, Nummern, Verweise),
-                          Entwürfe (store.js, IndexedDB „pdfix-studio“), PDF mit Projekt (export.js)
+                          gespeicherter Stand und automatische Sicherung ungespeicherter Änderungen
+                          (store.js, IndexedDB „pdfix-studio“), PDF mit Projekt (export.js)
   storage/idb.js          IndexedDB „pdf-editor“ v2 (eigene Schriften, zuletzt geöffnet, Unterschriften)
   signature/
     signature-extract.js  Freistellen (Hintergrund → transparent, Formularlinien, Zuschnitt) – ohne DOM

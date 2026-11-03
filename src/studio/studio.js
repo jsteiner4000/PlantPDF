@@ -13,7 +13,10 @@ import { $, $$, escapeHtml, htmlToElement } from '../ui/dom.js';
 import { closeMenu, showMenu, showPopover } from '../ui/menu.js';
 import { downloadBytes, pickFiles, showDialog, toast, withBusy } from '../ui/dialogs.js';
 import { idbPut } from '../storage/idb.js';
-import { notifyDocumentState } from '../platform/desktop-bridge.js';
+import { fileErrorReason, notifyDocumentState, reviveFileHandle } from '../platform/desktop-bridge.js';
+import { liveWindows, windowId } from '../storage/recovery.js';
+import { when } from '../ui/recovery.js';
+import { saveProgress } from '../ui/save-progress.js';
 import {
   ACCESS_BLOCKS,
   DOC_PARTS,
@@ -54,7 +57,23 @@ import { DIAGRAM } from './wiring.js';
 import { blockHasData } from './access.js';
 import { photoDate } from './exif.js';
 import { PdfRenderer } from '../render/pdf-renderer.js';
-import { deleteDraft, deleteTemplate, listDrafts, listTemplates, loadDraft, loadTemplate, saveDraft, saveTemplate } from './store.js';
+import {
+  HANDOFF,
+  handoffKey,
+  deleteAutosave,
+  deleteDraft,
+  deleteTemplate,
+  listAutosaves,
+  listDrafts,
+  listTemplates,
+  loadAutosave,
+  loadDraft,
+  loadDraftRecord,
+  loadTemplate,
+  putAutosave,
+  saveDraft,
+  saveTemplate,
+} from './store.js';
 import { thumbOf } from './thumbs.js';
 import { ensureBarlow } from './fonts.js';
 import { TooLargeError, assertPrintable, canMakePdf, embedProject, hasProject, makePdf, printHtml, readProject } from './export.js';
@@ -66,7 +85,13 @@ import { manualEdit } from './manual-edit.js';
 import { overlayEdit } from './overlay-edit.js';
 import { remapSite, toFrac } from './geo.js';
 
-export { deleteDraft, deleteTemplate, ensureBarlow, listDrafts, listTemplates };
+export { deleteDraft, deleteTemplate, ensureBarlow, listAutosaves, listDrafts, listTemplates };
+
+/** Name einer Dokumentation: die PDF-Datei, in die gespeichert wird (ohne „.pdf“), sonst der Titel. */
+const fileLabel = (project, file) => (file && file.name ? file.name.replace(/\.pdf$/i, '') : documentLabel(project));
+
+/** Abgelegte Datei ({ name, handle }) wiederherstellen; in der Desktop-App wird das Handle neu belebt. */
+const reviveFile = (file) => (file && file.name ? { name: String(file.name), handle: file.handle ? reviveFileHandle(file.handle) : null } : null);
 
 /** Vorlagen auf der Startseite („Neu“). */
 export const STUDIO_TEMPLATES = [
@@ -332,31 +357,64 @@ export class Studio {
   async openDraft(id) {
     if (this.project && this.project.id === id) return this.app.setView('studio');
     try {
-      const raw = await loadDraft(id);
-      if (!raw) throw new Error('fehlt');
-      await this.open(normalizeProject(raw));
+      // Übergabe aus einem anderen Tab: genau dieser Stand, mit Datei und „ungespeichert“
+      const auto = await loadAutosave(handoffKey(id)).catch(() => null);
+      if (auto && auto.project) {
+        const h = auto.handoff || {};
+        const opened = await this.open(normalizeProject(auto.project), null, {
+          file: reviveFile(auto.file),
+          saved: auto.saved,
+          dirty: h.dirty,
+          commit: h.commit,
+          fileWarn: h.fileWarn,
+          handoff: true,
+        });
+        await this.flush(); // ungespeicherte Änderungen jetzt unter diesem Fenster sichern …
+        await deleteAutosave(handoffKey(id)).catch(() => {}); // … dann erst die Übergabe löschen
+        return opened;
+      }
+      const rec = await loadDraftRecord(id);
+      if (!rec || !rec.project) throw new Error('fehlt');
+      await this.open(normalizeProject(rec.project), null, { file: reviveFile(rec.file), saved: true });
     } catch {
-      toast('Der Entwurf konnte nicht geöffnet werden.', 'err', 5000);
+      toast('Die Dokumentation konnte nicht geöffnet werden.', 'err', 5000);
     }
   }
 
-  async open(project, sel = null) {
-    // Desktop-App: schon ein Dokument in diesem Tab – als Entwurf sichern und in eigenem Tab öffnen
+  /**
+   * Projekt öffnen. `opts`: `file` (PDF, in die gespeichert wird), `saved` (es gibt einen gespeicherten
+   * Stand), `dirty` (ungespeicherte Änderungen), `commit` (diesen Stand als gespeichert ablegen, z. B.
+   * aus einer PDF), `fileWarn` (die PDF wurde nachträglich verändert – vor dem Überschreiben fragen).
+   * Ergebnis: false, wenn das Schließen der bisherigen Dokumentation abgebrochen wurde.
+   */
+  async open(project, sel = null, opts = {}) {
+    // Desktop-App: schon ein Dokument in diesem Tab – in eigenem Tab öffnen (Übergabe samt Zustand)
     const host = this.app.tabHost;
     if (host && (this.app.session || (this.project && this.project.id !== project.id))) {
-      // einen neueren Stand (z. B. in einem anderen Tab offen und schon gesichert) nicht überschreiben
-      const existing = await loadDraft(project.id).catch(() => null);
-      if (!existing || (existing.modified || 0) <= (project.modified || 0))
-        await saveDraft(pruneImages(project), { name: documentLabel(project), sub: [project.meta.customer, project.meta.site].filter(Boolean).join(' · ') });
-      return host.open({ kind: 'draft', id: project.id, name: documentLabel(project) });
+      await putAutosave(pruneImages(project), {
+        key: handoffKey(project.id),
+        owner: HANDOFF,
+        name: fileLabel(project, opts.file),
+        file: opts.file || null,
+        saved: !!opts.saved,
+        handoff: { dirty: !!opts.dirty, commit: !!opts.commit, fileWarn: !!opts.fileWarn },
+      });
+      return host.open({ kind: 'draft', id: project.id, name: fileLabel(project, opts.file) });
     }
-    if (this.project) await this.flush();
+    if (this.project && this.project.id !== project.id && !(await this.confirmClose())) return false;
     // Angaben zu Geräten aus dem Lageplan, die noch nicht in den Zugangsdaten stehen
     this.drafts = new Map();
     syncAccess(project, this.drafts);
+    clearTimeout(this.saveTimer);
     this.project = project;
+    this.file = opts.file || null;
+    this.fileWarn = !!opts.fileWarn;
+    this.secretChoice = undefined;
+    this.everSaved = !!opts.saved;
+    this.hasAuto = false;
     this.hist = { undo: [], redo: [] };
     this.snap = this.serialize();
+    this.savedSnap = opts.dirty ? null : this.snap;
     this.sel = sel || { kind: 'project' };
     this.zoom = null;
     this.armed = null;
@@ -368,16 +426,181 @@ export class Studio {
     this.updateTab();
     this.app.setView('studio');
     this.layout();
+    if (opts.commit) await this.commitSaved(this.snap).catch((err) => console.warn('Dokumentation nicht abgelegt', err));
+    // automatisch gesicherte, ungespeicherte Änderungen (Absturz, ohne Rückfrage geschlossen) anbieten
+    // (ein ungespeicherter Stand, der übergeben bzw. wiederhergestellt wird, ist schon der neueste)
+    if (!opts.dirty) await this.offerAutosave();
     this.saveSoon(0);
+    return true;
+  }
+
+  /**
+   * Wie in Office beim Öffnen: Gibt es zu dieser Dokumentation automatisch gesicherte, nicht
+   * gespeicherte Änderungen aus einer früheren Sitzung, wird gefragt, ob sie wiederhergestellt werden.
+   */
+  async offerAutosave() {
+    const project = this.project;
+    if (!project) return;
+    let auto = null;
+    try {
+      auto = await loadAutosave(project.id);
+    } catch {}
+    if (!auto || !auto.project || auto.owner === windowId) return;
+    // gehört zu einem anderen, noch laufenden Fenster (dort offen): nicht anrühren
+    if (auto.owner !== HANDOFF && (await liveWindows()).has(auto.owner)) return;
+    this.hasAuto = true;
+    // gleich dem gespeicherten Stand: nichts wiederherzustellen (wird beim nächsten Sichern gelöscht)
+    const restored = normalizeProject(auto.project);
+    const drafts = new Map();
+    syncAccess(restored, drafts);
+    if (JSON.stringify({ ...restored, images: undefined, modified: undefined }) === this.snap) return;
+    const choice = await showDialog({
+      title: 'Ungespeicherte Änderungen gefunden',
+      icon: 'save',
+      body: `Von <b>${escapeHtml(this.label())}</b> gibt es ungespeicherte Änderungen, die PlantPDF automatisch gesichert hat (Stand ${when(auto.time)}).<br><br>Möchten Sie diese Änderungen wiederherstellen?<br><span class="hint">„Verwerfen“ öffnet den zuletzt gespeicherten Stand.</span>`,
+      buttons: [
+        { label: 'Verwerfen', value: 'discard' },
+        { label: 'Wiederherstellen', primary: true, value: 'restore' },
+      ],
+      cancelValue: 'restore', // Esc verliert nichts
+      dismiss: false,
+    });
+    if (this.project !== project) return;
+    if (choice === 'discard') {
+      await this.dropAutosave();
+      return;
+    }
+    this.drafts = drafts;
+    this.project = restored;
+    this.file = reviveFile(auto.file) || this.file;
+    this.hist = { undo: [], redo: [] };
+    this.snap = this.serialize();
+    // ungespeichert, bis gespeichert wird (auch wenn es gleich aussieht)
+    if (this.savedSnap === this.snap) this.savedSnap = null;
+    this.sel = { kind: 'project' };
+    this.updateTab();
+    this.layout();
+    this.inspector.render();
+    this.app.renderRibbon();
+    this.updateHist();
+    toast(`Wiederhergestellt (Stand ${when(auto.time)}). Mit Strg+S speichern.`, '', 6000);
+  }
+
+  /**
+   * Beim Start (nach einem unerwarteten Ende): Dokumentationen, die noch nie gespeichert waren, gibt
+   * es nur als automatische Sicherung – sie werden hier angeboten. Gespeicherte fragen beim Öffnen.
+   */
+  async offerOrphans() {
+    let list;
+    try {
+      list = await listAutosaves();
+    } catch {
+      return;
+    }
+    const live = await liveWindows();
+    const now = Date.now();
+    list = list.filter((a) => {
+      if (this.project && this.project.id === a.project) return false;
+      // Übergabe an einen Tab: nach einer Minute nicht mehr unterwegs; nur Ungespeichertes zählt
+      if (a.owner === HANDOFF) {
+        if (now - a.time < 60000) return false;
+        if (a.saved && !(a.handoff && a.handoff.dirty)) return deleteAutosave(a.id).catch(() => {}), false;
+        return true;
+      }
+      return !a.saved && !live.has(a.owner);
+    });
+    if (!list.length) return;
+    const rows = list.map((a) => `<li><b>${escapeHtml(a.name || 'Dokumentation')}</b><span class="hint">gesichert ${when(a.time)}</span></li>`).join('');
+    const choice = await showDialog({
+      title: 'Dokumentation wiederherstellen',
+      icon: 'binder',
+      body:
+        `PlantPDF wurde nicht ordnungsgemäß beendet. Diese Dokumentation${list.length > 1 ? 'en waren' : ' war'} noch nie gespeichert und wurde${list.length > 1 ? 'n' : ''} automatisch gesichert:<ul class="rec-list">${rows}</ul>` +
+        (list.length > 1 ? '<span class="hint">Die neueste wird geöffnet, die übrigen beim nächsten Start angeboten.</span>' : ''),
+      buttons: [
+        { label: 'Später', value: 'later' },
+        { label: list.length > 1 ? 'Alle verwerfen' : 'Verwerfen', value: 'discard' },
+        { label: 'Wiederherstellen', primary: true, value: 'restore' },
+      ],
+      cancelValue: 'later',
+    });
+    if (choice === 'discard') {
+      await Promise.all(list.map((a) => deleteAutosave(a.id).catch(() => {})));
+      return;
+    }
+    if (choice !== 'restore') return;
+    const auto = await loadAutosave(list[0].id).catch(() => null);
+    if (!auto || !auto.project) return toast('Die gesicherte Dokumentation konnte nicht gelesen werden.', 'err', 5000);
+    const opened = await this.open(normalizeProject(auto.project), null, { file: reviveFile(auto.file), saved: auto.saved, dirty: true, handoff: true });
+    if (opened && list[0].owner === HANDOFF) {
+      await this.flush();
+      await deleteAutosave(list[0].id).catch(() => {});
+    }
+    toast(`Wiederhergestellt (Stand ${when(auto.time)}). Mit Strg+S speichern.`, '', 6000);
+  }
+
+  /**
+   * Ungespeicherte Änderungen? Vergleicht den Stand des Verlaufs (`snap`, nach jeder Änderung
+   * aktuell) mit dem gespeicherten – rückgängig bis zum gespeicherten Stand heißt wieder „gespeichert“.
+   */
+  get dirty() {
+    return !!this.project && this.snap !== this.savedSnap;
+  }
+
+  /** Automatische Sicherung dieses Projekts löschen (gespeichert bzw. „Nicht speichern“). */
+  async dropAutosave() {
+    const id = this.project && this.project.id;
+    this.hasAuto = false;
+    if (id) await deleteAutosave(id).catch(() => {});
+  }
+
+  /**
+   * Vor dem Schließen (X, Strg+W, Fenster schließen, andere Dokumentation öffnen): bei ungespeicherten
+   * Änderungen fragen – Speichern zeigt den Ring mit Haken. Ergebnis: true = darf schließen.
+   */
+  async confirmClose() {
+    if (!this.project) return true;
+    clearTimeout(this.saveTimer);
+    if (!this.dirty) {
+      if (this.hasAuto) await this.dropAutosave();
+      return true;
+    }
+    await this.flush(); // bis zur Antwort ist der letzte Stand gesichert
+    if (!this.visible) this.app.setView('studio');
+    const where = this.file
+      ? `Gespeichert wird in <b>${escapeHtml(this.file.name)}</b>.`
+      : canMakePdf()
+        ? 'Beim Speichern wählen Sie, wo die PDF abgelegt wird.'
+        : 'Gespeichert wird unter „Zuletzt bearbeitet“ auf der Startseite.';
+    const choice = await showDialog({
+      title: 'Dokumentation schließen',
+      icon: 'save',
+      body: `Möchten Sie die Änderungen an <b>${escapeHtml(this.label())}</b> speichern, bevor Sie schließen?<br><span class="hint">${where} Ohne Speichern gehen die Änderungen verloren.</span>`,
+      buttons: [
+        { label: 'Abbrechen', value: 'cancel' },
+        { label: 'Nicht speichern', value: 'discard' },
+        { label: 'Speichern', primary: true, value: 'save' },
+      ],
+      cancelValue: 'cancel',
+    });
+    if (choice === 'discard') {
+      await this.dropAutosave();
+      return true;
+    }
+    if (choice !== 'save') return false;
+    return this.save({ animate: true });
   }
 
   async close() {
-    await this.flush();
+    if (!(await this.confirmClose())) return false;
+    clearTimeout(this.saveTimer);
+    if (this.project) rememberCompany(this.project);
     this.armed = null;
     this.lastArmed = null;
     this.draft = null;
     this.updateArmHint();
     this.project = null;
+    this.file = null;
     this.doc = null;
     if (this.root) $('#sdPages').innerHTML = '';
     $('#prjTab').classList.add('hidden');
@@ -385,6 +608,7 @@ export class Studio {
     await this.app.showHome();
     this.app.setView('home');
     if (this.app.tabHost) this.app.tabHost.closedSelf();
+    return true;
   }
 
   /** Stand für den Verlauf: ohne Bilder (getrennt gehalten) und ohne Änderungszeit. */
@@ -397,17 +621,38 @@ export class Studio {
     this.saveTimer = setTimeout(() => this.flush(), delay);
   }
 
-  /** Entwurf sofort sichern (vor dem Schließen, Wechsel auf die Startseite, PDF erstellen). */
+  /**
+   * Automatische Sicherung jetzt (vor dem Schließen, beim Verlassen, nach Änderungen): nur
+   * ungespeicherte Änderungen, getrennt vom gespeicherten Stand – „Zuletzt bearbeitet“ bleibt
+   * unberührt, bis gespeichert wird.
+   */
   async flush() {
     clearTimeout(this.saveTimer);
     this.saveTimer = 0;
     if (!this.project) return;
+    const project = this.project;
     try {
-      await saveDraft(pruneImages(this.project), { name: documentLabel(this.project), sub: this.subtitle() });
+      if (this.dirty) {
+        await putAutosave(pruneImages(project), { owner: windowId, name: this.label(), file: this.file, saved: this.everSaved });
+        this.hasAuto = true;
+      } else if (this.hasAuto) await this.dropAutosave();
     } catch (err) {
-      console.warn('Entwurf nicht gesichert', err);
+      console.warn('Automatische Sicherung fehlgeschlagen', err);
     }
-    rememberCompany(this.project);
+  }
+
+  /** Diesen Stand als gespeichert ablegen („Zuletzt bearbeitet“, samt Datei); `snap`: gespeicherter Stand. */
+  async commitSaved(snap = this.snap) {
+    const project = this.project;
+    await saveDraft(pruneImages(project), { name: this.label(), sub: this.subtitle(), file: this.file });
+    if (this.project !== project) return;
+    this.savedSnap = snap;
+    this.everSaved = true;
+    rememberCompany(project);
+    if (this.dirty) await this.flush();
+    else await this.dropAutosave();
+    this.updateTab();
+    notifyDocumentState();
   }
 
   subtitle() {
@@ -415,68 +660,80 @@ export class Studio {
     return [m.customer, m.site].filter(Boolean).join(' · ');
   }
 
-  /** Titel des Projekts (Reiter, Fenstertitel, Dateiname). */
+  /** Name im Reiter, Fenstertitel und in der Liste: die PDF-Datei (ohne „.pdf“), sonst der Titel. */
+  label() {
+    return this.project ? fileLabel(this.project, this.file) : '';
+  }
+
+  /** Titel des Projekts (Reiter, Fenstertitel). */
   title() {
-    return this.project ? documentLabel(this.project) : '';
+    return this.label();
   }
 
   updateTab() {
     const tab = $('#prjTab');
     if (!tab || !this.project) return;
     tab.classList.remove('hidden');
-    const name = documentLabel(this.project);
+    const name = this.label();
     $('#prjName').textContent = name;
-    tab.title = name;
+    const dirty = this.dirty;
+    tab.classList.toggle('dirty', dirty);
+    $('#prjDirty')?.classList.toggle('hidden', !dirty);
+    tab.title = dirty ? `${name} – ungespeicherte Änderungen` : name;
   }
 
   /**
    * Nach dem Öffnen einer PDF: enthält sie ein PlantPDF-Projekt, Weiterbearbeiten anbieten. Entpackt
-   * wird das Projekt erst beim Klick (mit Größengrenze).
+   * wird das Projekt erst beim Klick (mit Größengrenze). `file`: die geöffnete Datei { name, handle }.
    */
-  offerProject(session) {
+  offerProject(session, file = null) {
     const old = document.getElementById('sdOffer');
     if (old) old.remove();
     if (!hasProject(session.doc)) return;
     const bar = htmlToElement(
-      `<div class="sd-offer" id="sdOffer">${icon('binder', 's')}<span>Diese PDF wurde mit <b>Dokumentation erstellen</b> angelegt.</span><button class="btn primary">Weiterbearbeiten</button><button class="btn ic" title="Ausblenden">${icon('x', 's')}</button></div>`,
+      `<div class="sd-offer" id="sdOffer">${icon('binder', 's')}<span>Diese PDF enthält eine <b>Dokumentation</b> – dort weiterbearbeiten und wieder in diese Datei speichern.</span><button class="btn primary">Weiterbearbeiten</button><button class="btn ic" title="Ausblenden">${icon('x', 's')}</button></div>`,
     );
     const [go, hide] = bar.querySelectorAll('button');
     hide.addEventListener('click', () => bar.remove());
     go.addEventListener('click', async () => {
-      if (await this.importFrom(session.doc)) bar.remove();
+      if (!(await this.importFrom(session.doc, file))) return;
+      bar.remove();
+      // Desktop-App: die Datei wandert in die Dokumentation (eigener Tab) – die unveränderte PDF-Ansicht
+      // schließt, damit nicht zwei verschiedene Stände derselben Datei offen sind
+      const app = this.app;
+      if (app.tabHost && app.session === session && !session.dirty && file && file.handle) await app.closeDocument();
     });
     $('#center').appendChild(bar);
   }
 
   /** Projekt aus einer geladenen PDF (pdf-lib) übernehmen – mit den nötigen Rückfragen. */
-  async importFrom(doc) {
+  async importFrom(doc, file = null) {
     const found = readProject(doc);
     if (!found) {
       toast('Die Projektdaten in dieser PDF sind nicht lesbar.', 'err', 5000);
       return false;
     }
     if (found.changed) {
+      const name = file ? `„${escapeHtml(file.name)}“` : 'Die PDF';
       const ok = await showDialog({
-        title: 'Dokumentation weiterbearbeiten',
+        title: 'PDF wurde nachträglich geändert',
         icon: 'info',
-        body: 'Die PDF wurde nach dem Erstellen verändert. Diese Änderungen sind im Projekt nicht enthalten – sie fehlen, wenn die PDF neu erstellt wird.',
+        body: `${name} wurde nach dem Erstellen noch als PDF bearbeitet – z. B. Text, Unterschrift oder Seiten. Diese Änderungen stehen nicht in der Dokumentation.<br><br><span class="hint">Beim Speichern entsteht die PDF neu aus der Dokumentation; die nachträglichen Änderungen fehlen dann. Vor dem Überschreiben fragt PlantPDF noch einmal.</span>`,
         buttons: [
           { label: 'Abbrechen', value: false },
-          { label: 'Weiterbearbeiten', primary: true, value: true },
+          { label: 'Trotzdem weiterbearbeiten', primary: true, value: true },
         ],
       });
       if (!ok) return false;
     }
-    if (found.project.sections.some((s) => s.secretsRemoved))
-      toast('Diese PDF wurde ohne Passwörter erstellt – sie fehlen im Projekt.', 'warn', 6000);
-    return this.openImported(found.project);
+    return this.openImported(found.project, file, { fileWarn: found.changed });
   }
 
   /**
    * „Aus PDF fortsetzen“ (Arbeitsbereich Dokumentation): die Bytes einer PDF prüfen und die darin
    * gespeicherte Dokumentation öffnen. Ergebnis: 'opened', 'cancel' oder 'none' (keine Dokumentation).
    */
-  async continueFromPdf(bytes) {
+  async continueFromPdf(bytes, file = null) {
     let doc;
     try {
       doc = await withBusy(() => PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false }));
@@ -484,42 +741,46 @@ export class Studio {
       return 'none';
     }
     if (!hasProject(doc)) return 'none';
-    return (await this.importFrom(doc)) ? 'opened' : 'cancel';
+    return (await this.importFrom(doc, file)) ? 'opened' : 'cancel';
   }
 
   /**
-   * Projekt aus einer PDF öffnen, ohne einen neueren Stand zu überschreiben: Gibt es dasselbe
-   * Projekt als Entwurf (oder geöffnet) mit jüngerer Änderung, wird gefragt, welcher Stand gilt –
-   * der Stand der PDF öffnet dann als Kopie.
+   * Projekt aus einer PDF öffnen. Ist dieselbe Dokumentation nach dieser PDF noch einmal gespeichert
+   * worden, wird gefragt, welcher Stand gilt. Gleich alt: der gespeicherte Stand (er enthält auch
+   * Passwörter, die in der PDF ausgeblendet sein können) – gespeichert wird in diese PDF.
    */
-  async openImported(project) {
-    let current = this.project && this.project.id === project.id ? this.project : null;
-    if (!current)
-      try {
-        const draft = await loadDraft(project.id);
-        current = draft ? normalizeProject(draft) : null;
-      } catch {}
-    if (current && (current.modified || 0) > (project.modified || 0)) {
+  async openImported(project, file = null, { fileWarn = false } = {}) {
+    if (this.project && this.project.id === project.id && (this.project.modified || 0) >= (project.modified || 0)) {
+      if (file && !this.file) this.file = file;
+      this.updateTab();
+      this.app.setView('studio');
+      return true;
+    }
+    let rec = null;
+    try {
+      rec = await loadDraftRecord(project.id);
+    } catch {}
+    const saved = rec && rec.project ? normalizeProject(rec.project) : null;
+    const savedAt = saved ? saved.modified || 0 : -1;
+    const pdfAt = project.modified || 0;
+    let usePdf = !saved || savedAt < pdfAt;
+    if (saved && savedAt > pdfAt) {
       const choice = await showDialog({
-        title: 'Neuerer Entwurf vorhanden',
+        title: 'Neuerer Stand vorhanden',
         icon: 'info',
-        body: 'Dieses Projekt wurde nach dem Erstellen der PDF weiterbearbeitet. Welchen Stand möchten Sie öffnen?',
+        body: `Diese Dokumentation wurde nach dem Erstellen der PDF noch einmal gespeichert (zuletzt ${when(savedAt)}). Welchen Stand möchten Sie weiterbearbeiten?<br><span class="hint">Gespeichert wird in jedem Fall in ${file ? `„${escapeHtml(file.name)}“` : 'diese PDF'}.</span>`,
         buttons: [
           { label: 'Abbrechen', value: null },
-          { label: 'Stand der PDF (als Kopie)', value: 'pdf' },
-          { label: 'Neueren Entwurf', primary: true, value: 'draft' },
+          { label: 'Stand dieser PDF', value: 'pdf' },
+          { label: 'Zuletzt gespeicherten Stand', primary: true, value: 'saved' },
         ],
       });
       if (!choice) return false;
-      if (choice === 'draft') {
-        if (current === this.project) this.app.setView('studio');
-        else await this.open(current);
-        return true;
-      }
-      project = { ...project, id: uid('prj') };
+      usePdf = choice === 'pdf';
     }
-    await this.open(project);
-    return true;
+    if (usePdf && project.sections.some((s) => s.secretsRemoved)) toast('Diese PDF wurde ohne Passwörter erstellt – sie fehlen im Projekt.', 'warn', 6000);
+    const opened = await this.open(usePdf ? project : saved, null, { file: file || reviveFile(rec && rec.file), saved: true, commit: usePdf, fileWarn });
+    return opened !== false;
   }
 
   /* ---------- Änderungen und Verlauf ---------- */
@@ -2211,7 +2472,7 @@ ${toPdf}
     const key = ev.key.toLowerCase();
     if (mod && key === 's') {
       ev.preventDefault();
-      this.exportPdf();
+      this.save({ as: ev.shiftKey });
     } else if (mod && key === 'h') {
       ev.preventDefault();
       this.replaceDialog();
@@ -2281,6 +2542,7 @@ ${toPdf}
   /* ---------- PDF erstellen, drucken ---------- */
 
   fileName() {
+    if (this.file && this.file.name) return this.file.name;
     return (documentLabel(this.project) || 'Dokumentation').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim() + '.pdf';
   }
 
@@ -2348,20 +2610,68 @@ ${toPdf}
     });
   }
 
-  /** „PDF erstellen“: Datei speichern (Desktop-App: Speichern-Dialog). Im Browser: Drucken als PDF. */
-  async exportPdf() {
+  /**
+   * Speichern (Strg+S, Schaltfläche, Rückfrage beim Schließen): die PDF samt Dokumentation in die
+   * zugehörige Datei schreiben – ohne Nachfrage, wenn sie bekannt ist (geöffnet aus einer PDF oder
+   * schon einmal gespeichert); sonst einmal den Speicherort wählen. `as`: immer neu wählen
+   * („Speichern unter“). `animate`: Ring mit Haken statt kurzer Meldung (beim Schließen).
+   * Im Browser ohne PDF-Erzeugung: Stand unter „Zuletzt bearbeitet“ ablegen; „Speichern unter“
+   * öffnet dort den Druckdialog („Als PDF speichern“).
+   */
+  async save({ as = false, animate = false } = {}) {
     if (!this.project) return false;
-    await this.flush();
+    clearTimeout(this.saveTimer);
+    const snap = this.snap;
     if (!canMakePdf()) {
-      toast('Im Druckdialog „Als PDF speichern“ wählen.', '', 5000);
-      return this.print();
+      if (as) {
+        toast('Im Druckdialog „Als PDF speichern“ wählen.', '', 5000);
+        await this.print();
+        return false;
+      }
+      const progress = animate ? saveProgress(`„${this.label()}“ wird gespeichert`, 'Wird gesichert …') : null;
+      try {
+        await this.commitSaved(snap);
+      } catch (err) {
+        console.error('Speichern', err);
+        progress?.fail();
+        toast('Die Dokumentation konnte nicht gespeichert werden.', 'err', 6000);
+        return false;
+      }
+      if (progress) await progress.done(this.label());
+      else toast('Gespeichert – auf der Startseite unter „Zuletzt bearbeitet“.');
+      return true;
     }
-    const secrets = await this.askSecrets();
-    if (secrets === 'cancel') return false;
-    const show = secrets == null ? null : secrets === 'show';
+    // Passwörter: einmal je geöffneter Dokumentation fragen (bei „Speichern unter“ neu)
+    if (as || this.secretChoice === undefined) {
+      const secrets = await this.askSecrets();
+      if (secrets === 'cancel') return false;
+      this.secretChoice = secrets;
+    }
+    const show = this.secretChoice == null ? null : this.secretChoice === 'show';
+    let handle = !as && this.file ? this.file.handle : null;
+    if (handle && this.fileWarn) {
+      const choice = await showDialog({
+        title: 'PDF überschreiben?',
+        icon: 'warn',
+        body: `<b>${escapeHtml(this.file.name)}</b> wurde nach dem Erstellen noch als PDF bearbeitet. Beim Überschreiben fehlen diese nachträglichen Änderungen (z. B. eine Unterschrift).`,
+        buttons: [
+          { label: 'Abbrechen', value: null },
+          { label: 'Als neue Datei …', value: 'as' },
+          { label: 'Überschreiben', primary: true, value: 'over' },
+        ],
+      });
+      if (!choice) return false;
+      if (choice === 'as') handle = null;
+    }
+    if (
+      handle &&
+      handle.queryPermission &&
+      (await handle.queryPermission({ mode: 'readwrite' }).catch(() => 'denied')) !== 'granted' &&
+      (await handle.requestPermission({ mode: 'readwrite' }).catch(() => 'denied')) !== 'granted'
+    )
+      handle = null;
     const name = this.fileName();
-    let handle = null;
-    if (window.showSaveFilePicker) {
+    if (!handle && window.showSaveFilePicker) {
       try {
         handle = await window.showSaveFilePicker({
           suggestedName: name,
@@ -2371,24 +2681,35 @@ ${toPdf}
         if (err && err.name === 'AbortError') return false;
       }
     }
+    const progress = animate ? saveProgress(`„${handle ? handle.name.replace(/\.pdf$/i, '') : this.label()}“ wird gespeichert`) : null;
     try {
-      const bytes = await withBusy(() => this.buildPdf(show), 100);
+      const bytes = await (progress ? this.buildPdf(show) : withBusy(() => this.buildPdf(show), 100));
       if (handle) {
         const writable = await handle.createWritable();
         await writable.write(bytes);
         await writable.close();
+        this.file = { name: handle.name, handle };
+        this.fileWarn = false;
         idbPut('recent', handle.name, { name: handle.name, handle, time: Date.now() });
-        toast('PDF erstellt: ' + handle.name);
       } else {
         downloadBytes(bytes, name);
-        toast('Die PDF wurde in den Download-Ordner gespeichert.');
+        this.file = { name, handle: null };
       }
+      await this.commitSaved(snap);
+      if (progress) await progress.done(this.file.name);
+      else toast(handle ? 'Gespeichert: ' + handle.name : 'Die PDF wurde in den Download-Ordner gespeichert.');
       return true;
     } catch (err) {
-      console.error('PDF erstellen', err);
-      toast(failMessage(err), 'err', 6000);
+      console.error('Speichern', err);
+      progress?.fail();
+      toast(fileErrorReason(err) ? 'Speichern nicht möglich: ' + fileErrorReason(err) : failMessage(err), 'err', 6000);
       return false;
     }
+  }
+
+  /** Früherer Name von „Speichern“ (Menü, Erweiterungen). */
+  exportPdf() {
+    return this.save();
   }
 
   /**

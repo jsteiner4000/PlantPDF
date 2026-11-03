@@ -126,6 +126,7 @@ test('Aus PDF fortsetzen: Dokumentation aus einer erstellten PDF, fremde PDF wir
       const bytes = await st.buildPdf();
       let s = '';
       for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+      await st.commitSaved(); // wie nach „Speichern“: gespeicherter Stand = Stand der PDF
       await st.close();
       return btoa(s);
     });

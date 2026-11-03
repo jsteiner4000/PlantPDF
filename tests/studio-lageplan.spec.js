@@ -91,7 +91,7 @@ test('Lageplan: Kopie, Platzieren im richtigen Plan, Verknüpfungen, Nummern, En
       const ids = [...a.symbols, ...copy.symbols, ...a.custom, ...copy.custom].map((x) => x.id);
       const kindsOk = copy.symbols.every((y) => !y.kind.startsWith('custom:') || copy.custom.some((c) => 'custom:' + c.id === y.kind));
       // nach dem Speichern und Öffnen bleiben die eigenen Symbole der Kopie
-      await st.flush();
+      await st.save();
       const id = st.project.id;
       await st.close();
       await st.openDraft(id);
@@ -197,7 +197,7 @@ test('Lageplan: eigene Symbole bearbeiten und entfernen, Entwurf ohne ungenutzte
     await expect.poll(() => page.evaluate(() => window.pdfEditor.studio.doc.pages.find((p) => p.kind === 'site').svg)).toContain('>TOR 1<');
 
     // Entwurf enthält nur verwendete Bilder (nicht „ghost“)
-    await page.evaluate(() => window.pdfEditor.studio.flush());
+    await page.evaluate(() => window.pdfEditor.studio.save());
     const saved = await page.evaluate(
       () =>
         new Promise((resolve, reject) => {

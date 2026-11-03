@@ -289,7 +289,7 @@ test('Richtfunk: Punkt-zu-Punkt und Punkt-zu-Mehrpunkt, Geräteliste, Stationen 
       const copy = st.project.sections.filter((x) => x.type === 'site')[1];
       const own = new Set(copy.symbols.map((y) => y.id));
       const copyOk = copy.links.every((l) => own.has(l.from) && l.to.every((t) => own.has(t)));
-      await st.flush();
+      await st.save();
       const id = st.project.id;
       await st.close();
       await st.openDraft(id);

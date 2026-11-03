@@ -40,6 +40,9 @@ test('Anlagendokumentation: nur Lageplan wählen, Auswahl gemerkt, Inhalt automa
     await dlg.locator('input[value="cover"]').check();
     await dlg.locator('input[value="access"]').check();
     await dlg.locator('.btn.primary').click();
+    // die bisherige (geänderte, nie gespeicherte) Dokumentation: Rückfrage vor dem Schließen
+    await expect(page.locator('.dlg')).toContainText('Möchten Sie die Änderungen');
+    await page.locator('.dlg .btn', { hasText: 'Nicht speichern' }).click();
     await expect.poll(() => types(page)).toEqual(['cover', 'toc', 'site', 'access']);
 
     // Abbrechen legt nichts an

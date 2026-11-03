@@ -227,6 +227,9 @@ export const siteTools = {
     let p = [(ev.clientX - r.left) / this.scale, (ev.clientY - r.top) / this.scale];
     p = [Math.max(a.x, Math.min(a.x + a.w, p[0])), Math.max(a.y, Math.min(a.y + a.h, p[1]))];
     const tool = toolOf(this.armed);
+    // Strecke nur während des Ziehens nachführen: eine fertige Messung bleibt stehen (sonst
+    // hinge der zweite Punkt an der Maus, und „Als Maßlinie behalten“ träfe nie die gemessene Länge)
+    if (d.stroke && (!this.drag || d.done)) return;
     if (d.stroke) {
       if (this.drag) this.drag.moved ||= Math.hypot(ev.clientX - this.drag.startX, ev.clientY - this.drag.startY) > 2;
       if (tool === 'scale' || tool === 'measure') this.loupe(ev, { el: d.el });

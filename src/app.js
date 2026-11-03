@@ -26,7 +26,7 @@ import { THEMES, readTheme, setTheme } from './ui/theme.js';
 import { fileErrorReason, notifyDocumentState, reviveFileHandle } from './platform/desktop-bridge.js';
 import { keepTopBarFitting } from './platform/title-bar.js';
 import { Recovery } from './ui/recovery.js';
-import { STUDIO_TEMPLATES, Studio, deleteDraft, deleteTemplate, ensureBarlow, listDrafts, listTemplates, templatePreview } from './studio/studio.js';
+import { STUDIO_TEMPLATES, Studio, deleteDraft, deleteTemplate, ensureBarlow, listAutosaves, listDrafts, listTemplates, templatePreview } from './studio/studio.js';
 
 /**
  * Zoomstufen für Strg+Plus/Minus und Strg+Mausrad (1 = 100 %).
@@ -140,7 +140,7 @@ export class App {
     this.showHome();
     this.setView('home');
     // nach einem unerwarteten Ende: gesicherte Kopie anbieten (Desktop: nur im ersten Tab, auf Zuruf)
-    if (!window.pdfEditorDesktop) setTimeout(() => this.recovery.offer(), 400);
+    if (!window.pdfEditorDesktop) setTimeout(() => this.offerRecovery(), 400);
   }
   build() {
     this.root.innerHTML = `
@@ -157,7 +157,7 @@ export class App {
   <nav class="tabs" id="tabs" aria-label="Geöffnet">
     <button class="tab on" id="tHome" title="Startseite" aria-label="Startseite">${icon('home', 's')}</button>
     <div class="doctab hidden" id="docTab" role="button" tabindex="0"><span class="ti c1">${icon('file', 's')}</span><span class="nm" id="docName"></span><span class="dot hidden" id="dirtyDot" title="Ungespeicherte Änderungen"></span><button class="btn ic" id="bClose" title="Dokument schließen">${icon('close', 's')}</button></div>
-    <div class="doctab hidden" id="prjTab" role="button" tabindex="0"><span class="ti c6">${icon('binder', 's')}</span><span class="nm" id="prjName"></span><button class="btn ic" id="bPrjClose" title="Dokumentation schließen">${icon('close', 's')}</button></div>
+    <div class="doctab hidden" id="prjTab" role="button" tabindex="0"><span class="ti c6">${icon('binder', 's')}</span><span class="nm" id="prjName"></span><span class="dot hidden" id="prjDirty" title="Ungespeicherte Änderungen"></span><button class="btn ic" id="bPrjClose" title="Dokumentation schließen">${icon('close', 's')}</button></div>
   </nav>
   <div class="grow"></div>
   <div class="tb-group" id="histBtns">
@@ -297,7 +297,7 @@ export class App {
     // Entwurf von „Dokumentation erstellen“ beim Verlassen sofort sichern
     window.addEventListener('pagehide', () => this.studio.flush());
     window.addEventListener('beforeunload', (n) => {
-      if (this.session && this.session.dirty) {
+      if ((this.session && this.session.dirty) || this.studio.dirty) {
         n.preventDefault();
         n.returnValue = '';
       }
@@ -478,11 +478,13 @@ export class App {
         hour: '2-digit',
         minute: '2-digit',
       });
+    // gespeicherte Dokumentationen mit automatisch gesicherten Änderungen: dezenter Hinweis
+    const pending = kind === 'drafts' ? new Set((await listAutosaves().catch(() => [])).map((a) => a.project)) : null;
     const items =
       kind === 'drafts'
         ? (await listDrafts()).map((d) => ({
             name: d.name,
-            sub: d.sub,
+            sub: [d.sub, pending.has(d.id) && (!this.studio.project || this.studio.project.id !== d.id) ? 'ungespeicherte Änderungen gesichert' : ''].filter(Boolean).join(' · '),
             time: d.modified,
             open: () => this.openDraft(d.id),
             remove: () => deleteDraft(d.id),
@@ -685,7 +687,7 @@ export class App {
       this.rebuildPages();
       this.setZoom(null, 'width', true);
       this.setTool(null);
-      this.studio.offerProject(session);
+      this.studio.offerProject(session, this.file);
       if (handle) idbPut('recent', name, { name, handle, time: Date.now() });
       document.title = name + ' – PlantPDF';
       return true;
@@ -783,8 +785,7 @@ export class App {
     this.setView('home');
   }
   /** Mit PlantPDF erstellte PDF wählen (oder abgelegte `file`) und die Dokumentation darin weiterbearbeiten. */
-  async continueDocumentation(file = null) {
-    let handle = null;
+  async continueDocumentation(file = null, handle = null) {
     if (!file) {
       if (window.showOpenFilePicker)
         try {
@@ -800,7 +801,7 @@ export class App {
     }
     if (!file) return;
     const bytes = new Uint8Array(await withBusy(() => file.arrayBuffer()));
-    const found = await this.studio.continueFromPdf(bytes);
+    const found = await this.studio.continueFromPdf(bytes, { name: file.name, handle });
     if (found !== 'none') return;
     const choice = await showDialog({
       title: 'Keine Dokumentation in dieser PDF',
@@ -827,6 +828,11 @@ export class App {
   openDraft(id) {
     return this.studio.openDraft(id);
   }
+  /** Nach einem unerwarteten Ende: gesicherte PDFs, danach nie gespeicherte Dokumentationen anbieten. */
+  async offerRecovery() {
+    await this.recovery.offer();
+    await this.studio.offerOrphans();
+  }
   /** Reiter des Dokuments: zurück zur geöffneten PDF. */
   showDocument() {
     if (!this.session || this.view === 'doc') return;
@@ -850,8 +856,8 @@ export class App {
     const studio = view === 'studio';
     $('#bSave').disabled = !(doc || studio);
     $('#bPrint').disabled = !(doc || studio);
-    $('#bSave').innerHTML = studio ? `${icon('export', 's')}PDF erstellen` : `${icon('save', 's')}Speichern`;
-    $('#bSave').title = studio ? 'PDF erstellen (Strg+S)' : 'Speichern (Strg+S)';
+    $('#bSave').innerHTML = `${icon('save', 's')}Speichern`;
+    $('#bSave').title = studio ? 'Speichern (Strg+S) – als PDF samt Dokumentation' : 'Speichern (Strg+S)';
     this.renderRibbon();
     this.updateHist();
     this.syncWorkspace();
@@ -971,7 +977,14 @@ export class App {
     const isImage = /^image\//.test(file.type);
     if (isImage && this.view === 'studio') return this.studio.dropImages(files.filter((f) => /^image\//.test(f.type)), ev);
     // Arbeitsbereich „Dokumentation“: eine abgelegte PDF ist eine fertige Dokumentation zum Fortsetzen
-    if (isPdf && this.workspace === 'docs' && this.view !== 'doc') return this.continueDocumentation(file);
+    if (isPdf && this.workspace === 'docs' && this.view !== 'doc') {
+      // mit Datei-Handle: Speichern schreibt später wieder in diese Datei
+      let handle = null;
+      try {
+        if (items[0] && items[0].getAsFileSystemHandle) handle = await items[0].getAsFileSystemHandle();
+      } catch {}
+      return this.continueDocumentation(file, handle);
+    }
     const inDoc = this.session && this.view === 'doc';
     if (inDoc && isImage) return this.edit.dropImage(file, ev);
     if (inDoc && isPdf && this.tool === 'organize')
@@ -1094,7 +1107,7 @@ export class App {
   }
   /** Speichern (Schaltfläche, Strg+S, Menü): in „Dokumentation erstellen“ heißt das PDF erstellen. */
   async save() {
-    if (this.view === 'studio') return this.studio.exportPdf();
+    if (this.view === 'studio') return this.studio.save();
     return this.saveDocument();
   }
   /** Die geöffnete PDF speichern – unabhängig vom sichtbaren Bereich (Rückfrage beim Beenden). */
@@ -1133,7 +1146,7 @@ export class App {
     }
   }
   async saveAs() {
-    if (this.view === 'studio') return this.studio.exportPdf();
+    if (this.view === 'studio') return this.studio.save({ as: true });
     if (!this.session) return false;
     const filename = this.file.name.replace(/\.pdf$/i, '') + '.pdf';
     if (window.showSaveFilePicker) {

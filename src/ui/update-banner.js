@@ -26,6 +26,31 @@ const TWINKLES = [
 const LEN = 2 * Math.PI * R;
 const mb = (bytes) => (bytes / 1048576).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
+/** Ring mit Fortschritt und Haken (auch für „Speichern“ beim Schließen, siehe save-progress.js). */
+export function ringMarkup() {
+  return `<div class="updx-ring">
+          <svg viewBox="0 0 120 120" aria-hidden="true">
+            <defs>
+              <linearGradient id="updxGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="var(--acc)"/><stop offset="1" stop-color="var(--acc-line)"/></linearGradient>
+              <linearGradient id="updxCheckGrad" gradientUnits="userSpaceOnUse" x1="42" y1="73" x2="79" y2="47"><stop offset="0" stop-color="#1d4ed8"/><stop offset="0.55" stop-color="var(--acc)"/><stop offset="1" stop-color="#7dd3fc"/></linearGradient>
+            </defs>
+            <circle class="updx-track" cx="60" cy="60" r="${R}"/>
+            <circle class="updx-arc" cx="60" cy="60" r="${R}" stroke-dasharray="${LEN}" stroke-dashoffset="${LEN}"/>
+            <circle class="updx-sheen" cx="60" cy="60" r="${R}" stroke-dasharray="14 ${LEN}"/>
+            <g class="updx-checkg" transform="rotate(90 60 60)">
+              <path class="updx-check" d="${CHECK}"/>
+              <path class="updx-shine" d="${CHECK}"/>
+              <circle class="updx-tip" r="3.6"><animateMotion dur="0.6s" begin="indefinite" fill="freeze" path="${CHECK}" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines="0.65 0 0.35 1"/></circle>
+              ${TWINKLES.map(([x, y, r, c], i) => `<circle class="updx-tw" cx="${x}" cy="${y}" r="${r}" fill="${c}" style="animation-delay:${0.62 + i * 0.05}s"/>`).join('')}
+            </g>
+          </svg>
+          <div class="updx-pct"><b>0</b><span>%</span></div>
+        </div>`;
+}
+
+/** Länge des Rings (für stroke-dashoffset). */
+export const RING_LEN = LEN;
+
 export function showUpdate({ version, current } = {}, install, abort = null) {
   banner?.remove();
   cancel = abort;
@@ -60,24 +85,7 @@ function ensureOverlay(version) {
   overlay = htmlToElement(
     `<div class="updx" role="dialog" aria-modal="true" aria-label="Update">
       <div class="updx-card">
-        <div class="updx-ring">
-          <svg viewBox="0 0 120 120" aria-hidden="true">
-            <defs>
-              <linearGradient id="updxGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="var(--acc)"/><stop offset="1" stop-color="var(--acc-line)"/></linearGradient>
-              <linearGradient id="updxCheckGrad" gradientUnits="userSpaceOnUse" x1="42" y1="73" x2="79" y2="47"><stop offset="0" stop-color="#1d4ed8"/><stop offset="0.55" stop-color="var(--acc)"/><stop offset="1" stop-color="#7dd3fc"/></linearGradient>
-            </defs>
-            <circle class="updx-track" cx="60" cy="60" r="${R}"/>
-            <circle class="updx-arc" cx="60" cy="60" r="${R}" stroke-dasharray="${LEN}" stroke-dashoffset="${LEN}"/>
-            <circle class="updx-sheen" cx="60" cy="60" r="${R}" stroke-dasharray="14 ${LEN}"/>
-            <g class="updx-checkg" transform="rotate(90 60 60)">
-              <path class="updx-check" d="${CHECK}"/>
-              <path class="updx-shine" d="${CHECK}"/>
-              <circle class="updx-tip" r="3.6"><animateMotion dur="0.6s" begin="indefinite" fill="freeze" path="${CHECK}" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines="0.65 0 0.35 1"/></circle>
-              ${TWINKLES.map(([x, y, r, c], i) => `<circle class="updx-tw" cx="${x}" cy="${y}" r="${r}" fill="${c}" style="animation-delay:${0.62 + i * 0.05}s"/>`).join('')}
-            </g>
-          </svg>
-          <div class="updx-pct"><b>0</b><span>%</span></div>
-        </div>
+        ${ringMarkup()}
         <h3>PlantPDF ${escapeHtml(String(version || ''))} wird heruntergeladen</h3>
         <p class="updx-sub" aria-live="polite">Verbindung wird aufgebaut …</p>
         <button type="button" class="btn updx-cancel">Abbrechen</button>
