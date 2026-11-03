@@ -771,13 +771,23 @@ test('Desktop-App: Tabs – zweite PDF im neuen Tab, umordnen, herausziehen, zur
     await home.locator('.dlg .btn.primary', { hasText: 'Erstellen' }).click();
     await expect.poll(() => names(home)).toHaveLength(1);
     expect((await names(home))[0]).not.toMatch(/\.pdf$/);
+    // zurück zu „PDF“: wieder in der PDF, in der man war (b.pdf) – keine neue Startseite
+    const tabsBefore = await tabCount(app);
     await home.locator('#wsPdf').click();
-    const pdfHome = await activePage(app);
-    await expect.poll(() => names(pdfHome)).toEqual(['a.pdf', 'b.pdf']);
-    await pdfHome.locator('#tabs .xtab', { hasText: 'a.pdf' }).click();
+    await expect.poll(() => mainWindowTitle(app)).toBe('b.pdf – PlantPDF');
+    expect(await activePage(app)).toBe(b);
+    await expect.poll(() => names(b)).toEqual(['a.pdf', 'b.pdf']);
+    expect(await tabCount(app)).toBe(tabsBefore);
+    // und wieder zur Dokumentation: in die eben angelegte, nicht auf die Startseite
+    await b.locator('#wsDocs').click();
+    await expect.poll(async () => (await activePage(app)) === home).toBe(true);
+    await expect(home.locator('#studio')).toBeVisible();
+    await home.locator('#wsPdf').click();
+    await expect.poll(() => mainWindowTitle(app)).toBe('b.pdf – PlantPDF');
+    await b.locator('#tabs .xtab', { hasText: 'a.pdf' }).click();
     await expect.poll(() => mainWindowTitle(app)).toBe('a.pdf – PlantPDF');
     await expect.poll(() => names(a)).toEqual(['a.pdf', 'b.pdf']);
-    expect(await tabCount(app)).toBe(4);
+    expect(await tabCount(app)).toBe(tabsBefore);
 
     // Fenster schließen: Rückfrage (im Stil der App) für jeden geänderten Tab, „Abbrechen“ beim zweiten hält offen
     await makeDirty(a);
@@ -843,18 +853,25 @@ test('Desktop-App: Bereichswechsel ohne Warten – vorgewärmte Startseite statt
     expect(ms).toBeLessThan(2000);
     expect(await tabCount(app)).toBe(2);
 
-    // Anleitung anlegen (die Startseite wird zum Dokument) → wieder eine vorgewärmte Startseite;
-    // zurück zu „PDF“: kein neuer Tab muss laden
+    // Anleitung anlegen (die Startseite wird zum Dokument), zurück zu „PDF“: wieder in a.pdf –
+    // kein neuer Tab, keine Startseite
+    const pdfTab = (await app.evaluate(() => globalThis.__plantpdf.tabs().find((t) => t.name === 'a.pdf'))).id;
     await docs.locator('.tpl[data-tpl="manual"]').click();
     await expect(docs.locator('#studio .sd-page').first()).toBeVisible();
-    await expect.poll(async () => (await spares()).filter((t) => t.ready).length, { timeout: 20_000 }).toBe(1);
-    const [next] = await spares();
     const t1 = Date.now();
     await docs.locator('#wsPdf').click();
-    await expect.poll(active).toBe(next.id);
-    const home = await activePage(app);
-    await expect(home.locator('#hOpen')).toBeVisible();
+    await expect.poll(active).toBe(pdfTab);
     console.log(`Wechsel Dokumentation → PDF: ${Date.now() - t1} ms`);
+    await expect.poll(() => mainWindowTitle(app)).toBe('a.pdf – PlantPDF');
+    expect(await tabCount(app)).toBe(2);
+    // „Dokumentation“: wieder in der Anleitung
+    await page.locator('#wsDocs').click();
+    await expect.poll(async () => (await activePage(app)) === docs).toBe(true);
+    // eine neue Startseite nur auf Wunsch (Haus): die vorgewärmte, sofort da
+    await expect.poll(async () => (await spares()).filter((t) => t.ready).length, { timeout: 20_000 }).toBe(1);
+    const [next] = await spares();
+    await docs.locator('#tHome').click();
+    await expect.poll(active).toBe(next.id);
     expect(await tabCount(app)).toBe(3);
   } finally {
     await quit(app);

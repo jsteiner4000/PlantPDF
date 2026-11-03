@@ -2956,6 +2956,31 @@ select.ff:focus {
   position: relative;
   touch-action: none;
 }
+/* Jeder Tab mit feiner Haarlinie (man sieht, wo er anfängt und aufhört); der aktive mit Rahmen in
+   der Akzentfarbe des Bereichs und einem schmalen Balken unten */
+.xtab:not(.on) {
+  background: color-mix(in srgb, var(--panel) 35%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 85%, transparent);
+}
+.xtab:not(.on):hover {
+  background: var(--hover);
+}
+.xtab.on {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--acc) 45%, var(--line)),
+    var(--sh1);
+}
+.xtab.on::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--acc);
+  pointer-events: none;
+}
 .reordering .xtab:not(.dragging) {
   transition: transform 0.2s var(--ease-out);
 }

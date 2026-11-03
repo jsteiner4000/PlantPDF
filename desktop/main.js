@@ -281,6 +281,9 @@ function start() {
     const prev = w.front;
     w.active = tab;
     tab.spare = false; // die vorgewärmte Startseite wird jetzt gezeigt
+    // zuletzt genutzter Tab je Bereich (für den Wechsel mit dem Umschalter)
+    const kind = kindOf(tab);
+    if (kind !== 'home') (w.lastByWs ||= {})[kind] = tab;
     const token = ++w.swap;
     updateTitle(w);
     broadcastTabs(w);
@@ -472,8 +475,8 @@ function start() {
   }
 
   /** Startseite eines Fensters zeigen (vorhandene oder neue); `ws`: Arbeitsbereich dort. */
-  function homeTab(w, ws = null) {
-    let start = w.tabs.find((t) => !t.state.hasDocument);
+  function homeTab(w, ws = null, prefer = null) {
+    let start = prefer && !prefer.closed && !prefer.state.hasDocument ? prefer : w.tabs.find((t) => !t.state.hasDocument);
     if (!start) start = createTab(w, { activate: false });
     if (ws === 'pdf' || ws === 'docs') {
       // gleich vormerken, damit die Tab-Leiste sofort die Tabs dieses Bereichs zeigt
@@ -481,6 +484,19 @@ function start() {
       if (start.ready) command('setWorkspace', { tab: start, data: ws });
     }
     activateTab(start);
+  }
+
+  /**
+   * Arbeitsbereich wechseln (Umschalter „PDF“ / „Dokumentation“, Menü, Tastenkürzel): zurück in den
+   * Tab, in dem man dort zuletzt war – sonst in einen anderen Tab dieses Bereichs, sonst zu dessen
+   * Startseite. Eine neue Startseite öffnet nur, wer sie selbst öffnet (Haus, Strg+T).
+   */
+  function workspaceTab(w, ws, from = null) {
+    const last = w.lastByWs && w.lastByWs[ws];
+    if (last && !last.closed && w.tabs.includes(last) && kindOf(last) === ws) return activateTab(last);
+    const any = w.tabs.filter((t) => !t.closed && kindOf(t) === ws).pop();
+    if (any) return activateTab(any);
+    return homeTab(w, ws, from);
   }
 
   /** Allen Tabs eines Fensters die Tab-Leiste schicken. */
@@ -1030,6 +1046,7 @@ function start() {
       else broadcastTabs(tab.win);
     });
     handle('tab:home', (tab, ws) => homeTab(tab.win, ws === 'pdf' || ws === 'docs' ? ws : wsOf(tab)));
+    handle('tab:workspace', (tab, ws) => (ws === 'pdf' || ws === 'docs' ? workspaceTab(tab.win, ws, tab) : undefined));
     handle('tab:reorder', (tab, id, index) => {
       const t = tabById(id);
       if (!t || t.win !== tab.win || !Number.isInteger(index)) return;
@@ -1074,6 +1091,8 @@ function start() {
       updateTitle(tab.win);
       broadcastTabs(tab.win);
       if (state.hasDocument) ensureSpare(tab.win);
+      // die gezeigte Startseite hat ein Dokument bekommen: sie ist jetzt der letzte Tab ihres Bereichs
+      if (tab.win.active === tab && kindOf(tab) !== 'home') (tab.win.lastByWs ||= {})[kindOf(tab)] = tab;
       // Darstellung der App auch für Titelleiste, Menü, Systemdialoge und die anderen Tabs
       if (['light', 'dark', 'system'].includes(state.theme) && nativeTheme.themeSource !== state.theme) {
         nativeTheme.themeSource = state.theme;

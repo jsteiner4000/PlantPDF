@@ -117,6 +117,8 @@ export function installTabStrip(tabs, app) {
     open: (open) => tabs.open(open),
     /** Startseite des Fensters (eigener Tab); `ws`: dort diesen Arbeitsbereich zeigen. */
     home: (ws) => tabs.home(ws),
+    /** Arbeitsbereich wechseln: zum dort zuletzt genutzten Tab, sonst zur Startseite des Bereichs. */
+    workspace: (ws) => tabs.workspace(ws),
     /** Dokument dieses Tabs wurde geschlossen: Tab entfernen (der letzte bleibt als Startseite). */
     closedSelf: () => tabs.closedSelf(),
     get self() {

@@ -62,6 +62,7 @@ contextBridge.exposeInMainWorld('pdfEditorDesktop', {
     close: (id) => call('tab:close', Number(id)),
     closedSelf: () => call('tab:closed-self'),
     home: (ws) => call('tab:home', ws === 'pdf' || ws === 'docs' ? ws : null),
+    workspace: (ws) => call('tab:workspace', ws === 'pdf' || ws === 'docs' ? ws : null),
     reorder: (id, index) => call('tab:reorder', Number(id), Number(index)),
     drop: (id) => call('tab:drop', Number(id)),
     /** nur für die Tests (im ausgelieferten Programm abgelehnt) */

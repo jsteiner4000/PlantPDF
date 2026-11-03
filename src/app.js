@@ -765,13 +765,12 @@ export class App {
    * Arbeitsbereich wechseln: dort weiter, wo man war (geöffnetes Dokument bzw. Startseite). Nichts
    * wird geschlossen – eine offene PDF bleibt beim Wechsel zur Dokumentation geöffnet und umgekehrt.
    */
-  async switchWorkspace(ws) {
+  async switchWorkspace(ws, { local = false } = {}) {
     if (ws !== 'pdf' && ws !== 'docs') return;
-    // Desktop-App: Tab mit Dokument – der andere Bereich ist die Startseite des Fensters
-    if (this.tabHost && this.hasDocument()) {
-      if (ws === this.workspace) return;
-      return this.tabHost.home(ws);
-    }
+    // Desktop-App: zurück in den Tab, in dem man in diesem Bereich zuletzt war (sonst dessen
+    // Startseite) – das entscheidet das Fenster. `local`: vom Fenster selbst (Startseite umstellen).
+    if (this.tabHost && !local && ws !== this.workspace) return this.tabHost.workspace(ws);
+    if (this.tabHost && this.hasDocument()) return;
     if (ws === this.workspace) {
       // erneuter Klick auf den aktiven Bereich: zu seiner Startseite bzw. seinem Dokument
       if (this.view === 'home') return;
