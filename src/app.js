@@ -769,7 +769,12 @@ export class App {
     if (ws !== 'pdf' && ws !== 'docs') return;
     // Desktop-App: zurück in den Tab, in dem man in diesem Bereich zuletzt war (sonst dessen
     // Startseite) – das entscheidet das Fenster. `local`: vom Fenster selbst (Startseite umstellen).
-    if (this.tabHost && !local && ws !== this.workspace) return this.tabHost.workspace(ws);
+    if (this.tabHost && !local && ws !== this.workspace) {
+      // Schieber und Akzentfarbe gleiten hier schon los; das Fenster tauscht, wenn sie fast da sind
+      this.previewWorkspace(ws);
+      return this.tabHost.workspace(ws);
+    }
+    if (local) this.previewing = null;
     if (this.tabHost && this.hasDocument()) return;
     if (ws === this.workspace) {
       // erneuter Klick auf den aktiven Bereich: zu seiner Startseite bzw. seinem Dokument
@@ -881,12 +886,36 @@ export class App {
       this.wsObserver.observe(bar);
     }
   }
-  /** Umschalter, Reiter und Akzentfarbe passend zum Arbeitsbereich. */
-  syncWorkspace() {
+  /**
+   * Desktop-App: Schieber, Auswahl und Akzentfarbe gleiten schon zum anderen Bereich, während das
+   * Fenster in dessen Tab wechselt (der Bereich dieses Tabs bleibt, wie er ist).
+   */
+  previewWorkspace(ws) {
+    this.previewing = ws;
+    document.documentElement.dataset.ws = ws;
+    for (const b of $$('.ws-b')) b.setAttribute('aria-checked', String(b.dataset.ws === ws));
+    const bar = $('.ws');
+    const on = bar && $(`.ws-b[data-ws="${ws}"]`, bar);
+    if (!on || !on.offsetWidth) return;
+    const thumb = $('.ws-thumb', bar);
+    thumb.style.width = on.offsetWidth + 'px';
+    thumb.style.transform = `translateX(${on.offsetLeft - 2}px)`;
+  }
+  /** Dieser Tab ist nicht mehr vorn (vom Fenster): wieder den eigenen Bereich zeigen – ohne Bewegung. */
+  settleWorkspace() {
+    if (!this.previewing) return;
+    this.previewing = null;
+    const bar = $('.ws');
+    if (bar) bar.classList.toggle('ready', false); // moveWsThumb schaltet die Bewegung danach wieder ein
+    this.syncWorkspace(false);
+  }
+  /** Umschalter, Reiter und Akzentfarbe passend zum Arbeitsbereich; `remember`: für neue Tabs merken. */
+  syncWorkspace(remember = true) {
     const ws = this.workspace;
-    try {
-      localStorage.setItem(WS_KEY, ws);
-    } catch {}
+    if (remember)
+      try {
+        localStorage.setItem(WS_KEY, ws);
+      } catch {}
     document.documentElement.dataset.ws = ws;
     for (const b of $$('.ws-b')) {
       const on = b.dataset.ws === ws;

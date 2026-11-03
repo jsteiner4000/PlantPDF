@@ -166,6 +166,8 @@ const COMMANDS = {
   openDraft: (data) => settle(data && typeof data.id === 'string' && app.studio.openDraft(data.id)),
   restoreRecovery: (data) => settle(data && typeof data.id === 'string' && app.recovery.restoreById(data.id)),
   setWorkspace: (ws) => app.switchWorkspace(ws, { local: true }),
+  /** Ein anderer Tab ist jetzt vorn: Umschalter dieses Tabs wieder auf den eigenen Bereich. */
+  settleWorkspace: () => app.settleWorkspace(),
   /** Nur im ersten Tab nach dem Start: gesicherte Kopien anbieten. */
   offerRecovery: () => app.offerRecovery(),
   /** Vor dem Nach-vorn-Holen (Hauptprozess): erst antworten, wenn die Ansicht gezeichnet hat. */

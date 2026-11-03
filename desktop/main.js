@@ -276,7 +276,7 @@ function start() {
    * deshalb zuerst verdeckt unter der bisherigen Ansicht sichtbar, zeichnet dort und kommt erst dann
    * nach vorn; die bisherige verschwindet danach. Ergebnis: Promise, sobald der Tab vorn ist.
    */
-  function activateTab(tab) {
+  function activateTab(tab, { minDelay = 0 } = {}) {
     const w = tab.win;
     const prev = w.front;
     w.active = tab;
@@ -291,8 +291,14 @@ function start() {
       if (w.swap !== token || tab.closed || !alive(w)) return;
       w.base.contentView.addChildView(tab.view); // nach vorn (Reihenfolge der Ansichten)
       w.front = tab;
+      // der bisherige Tab zeigte beim Umschalten schon den neuen Bereich: zurück auf seinen eigenen
+      if (prev && prev !== tab && !prev.closed && usable(prev)) command('settleWorkspace', { tab: prev });
       w.shown = null;
-      for (const t of w.tabs) if (t !== tab && !t.closed && !t.spare) t.view.setVisible(false);
+      // Verborgene Ansichten drosselt Chromium auf etwa ein Bild pro Sekunde – geholt brauchen sie dann
+      // ~200 ms bis zum ersten Bild. Die zuletzt genutzten Tabs beider Bereiche (Ziel des Umschalters)
+      // und die vorgewärmte Startseite bleiben deshalb sichtbar, nur verdeckt; die übrigen ruhen.
+      const warm = new Set(Object.values(w.lastByWs || {}));
+      for (const t of w.tabs) if (t !== tab && !t.closed && !t.spare) t.view.setVisible(warm.has(t));
       if (usable(tab) && w.base.isFocused()) tab.view.webContents.focus();
     };
     tab.view.setVisible(true);
@@ -301,7 +307,8 @@ function start() {
       bringFront();
       return Promise.resolve();
     }
-    const shown = whenPainted(tab)
+    // `minDelay`: der Schieber im bisherigen Tab soll seine Bewegung zeigen können
+    const shown = Promise.all([whenPainted(tab), minDelay ? new Promise((resolve) => setTimeout(resolve, minDelay)) : null])
       .then(bringFront)
       .finally(() => w.shown === shown && (w.shown = null));
     w.shown = shown;
@@ -311,17 +318,19 @@ function start() {
   /**
    * Erstes Bild des Tabs ist gezeichnet (geladen und zwei Bildwechsel). Ein geladener Tab braucht
    * dafür nur wenige Millisekunden – spätestens nach 250 ms kommt er trotzdem nach vorn, damit der
-   * Wechsel nie hängt. Ein Tab, der noch lädt, höchstens 4 s (danach lieber kurz leer als blockiert).
+   * Wechsel nie hängt. Ein Tab, der noch lädt, höchstens 1,5 s (danach lieber kurz leer als blockiert).
    */
   function whenPainted(tab) {
     const loaded = tab.ready ? Promise.resolve() : new Promise((resolve) => tab.waiting.push(resolve));
     const painted = loaded.then(() => (usable(tab) ? command('painted', { tab, wait: true, timeout: 250 }).catch(() => {}) : null));
-    return Promise.race([painted, new Promise((resolve) => setTimeout(resolve, 4000))]);
+    let timer = 0;
+    const cap = new Promise((resolve) => (timer = setTimeout(resolve, tab.ready ? 300 : 1500)));
+    return Promise.race([painted, cap]).finally(() => clearTimeout(timer));
   }
 
   /**
-   * Vorgewärmte Startseite: Hat ein Fenster keine Startseite mehr (sie hat ein Dokument bekommen),
-   * lädt kurz darauf eine neue verborgen im Hintergrund. Der Wechsel zur Startseite bzw. in den
+   * Vorgewärmte Startseite: Jedes Fenster hält neben dem gezeigten Tab eine fertig geladene Startseite
+   * in Reserve (schon kurz nach dem Start, dann jedes Mal, wenn sie gebraucht wurde). Der Wechsel zur Startseite bzw. in den
    * anderen Bereich ist dann sofort da, statt erst das ganze Programm in einem neuen Tab zu laden.
    */
   function ensureSpare(w) {
@@ -329,9 +338,10 @@ function start() {
     w.spareTimer = setTimeout(() => {
       w.spareTimer = 0;
       if (printOnly || !alive(w) || w.allowClose || w.closing) return;
-      if (w.tabs.some((t) => !t.closed && !t.state.hasDocument)) return;
+      // schon eine Startseite in Reserve (nicht die gerade gezeigte): nichts zu tun
+      if (w.tabs.some((t) => !t.closed && t !== w.active && !t.state.hasDocument)) return;
       createTab(w, { activate: false, spare: true });
-    }, 1500);
+    }, 800);
   }
 
   function focusTab(tab) {
@@ -475,7 +485,7 @@ function start() {
   }
 
   /** Startseite eines Fensters zeigen (vorhandene oder neue); `ws`: Arbeitsbereich dort. */
-  function homeTab(w, ws = null, prefer = null) {
+  function homeTab(w, ws = null, prefer = null, opts = {}) {
     let start = prefer && !prefer.closed && !prefer.state.hasDocument ? prefer : w.tabs.find((t) => !t.state.hasDocument);
     if (!start) start = createTab(w, { activate: false });
     if (ws === 'pdf' || ws === 'docs') {
@@ -483,7 +493,7 @@ function start() {
       start.state.workspace = start.workspace = ws;
       if (start.ready) command('setWorkspace', { tab: start, data: ws });
     }
-    activateTab(start);
+    activateTab(start, start === prefer ? {} : opts);
   }
 
   /**
@@ -492,12 +502,16 @@ function start() {
    * Startseite. Eine neue Startseite öffnet nur, wer sie selbst öffnet (Haus, Strg+T).
    */
   function workspaceTab(w, ws, from = null) {
+    const slide = { minDelay: SLIDE_MS };
     const last = w.lastByWs && w.lastByWs[ws];
-    if (last && !last.closed && w.tabs.includes(last) && kindOf(last) === ws) return activateTab(last);
+    if (last && !last.closed && w.tabs.includes(last) && kindOf(last) === ws) return activateTab(last, slide);
     const any = w.tabs.filter((t) => !t.closed && kindOf(t) === ws).pop();
-    if (any) return activateTab(any);
-    return homeTab(w, ws, from);
+    if (any) return activateTab(any, slide);
+    return homeTab(w, ws, from, slide);
   }
+
+  /** So lange gleitet der Schieber des Umschalters, bevor der Tab des anderen Bereichs nach vorn kommt. */
+  const SLIDE_MS = 200;
 
   /** Allen Tabs eines Fensters die Tab-Leiste schicken. */
   function broadcastTabs(w) {
@@ -507,7 +521,14 @@ function start() {
       .map((t) => ({ id: t.id, name: t.state.name, dirty: !!t.state.dirty, kind: kindOf(t) }));
     // die Leiste zeigt nur die Tabs des Bereichs, in dem man gerade ist (PDF bzw. Dokumentation)
     const ws = w.active ? wsOf(w.active) : 'pdf';
-    for (const t of w.tabs) if (t.ready && usable(t)) t.view.webContents.send('app:command', { command: 'tabs', data: { tabs: list, active: w.active ? w.active.id : 0, self: t.id, ws } });
+    const data = { tabs: list, active: w.active ? w.active.id : 0, ws };
+    const sig = JSON.stringify(data);
+    for (const t of w.tabs) {
+      // nur bei Änderung senden (Zustandsmeldungen kommen oft), die vorgewärmte Startseite erst, wenn sie gezeigt wird
+      if (!t.ready || !usable(t) || (t.spare && t !== w.active) || t.tabsSig === sig) continue;
+      t.tabsSig = sig;
+      t.view.webContents.send('app:command', { command: 'tabs', data: { ...data, self: t.id } });
+    }
   }
 
   function openPath(filePath) {
@@ -1119,6 +1140,7 @@ function start() {
       if (!tab) return;
       tab.ready = true;
       tab.gone = false;
+      tab.tabsSig = null; // (neu geladen: Tab-Leiste wieder schicken)
       for (const resolve of tab.waiting.splice(0)) resolve();
       broadcastTabs(tab.win);
       if (tab.workspace) {
@@ -1129,6 +1151,8 @@ function start() {
         tab.open = null;
         deliver(tab, open);
       }
+      // Reserve-Startseite anlegen, sobald dieser Tab steht (nicht beim Laden des ersten Tabs mitbremsen)
+      if (!tab.spare) ensureSpare(tab.win);
       // nach einem unerwarteten Ende: gesicherte Kopien anbieten (nur einmal, im ersten Tab)
       if (tab.primary) {
         tab.primary = false;
