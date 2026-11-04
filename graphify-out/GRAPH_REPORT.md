@@ -1,17 +1,17 @@
 # Graph Report - PlantPDF  (2026-11-04)
 
 ## Corpus Check
-- 126 files · ~276,994 words
+- 132 files · ~278,632 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 32 file(s) not represented in the graph (top: .ttf 20, (none) 5, .css 3)
 
 ## Summary
-- 2118 nodes · 6662 edges · 91 communities (65 shown, 26 thin omitted)
+- 2144 nodes · 6705 edges · 89 communities (67 shown, 22 thin omitted)
 - Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 225 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `1ebed34d`
+- Built from commit: `42bd4991`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -19,23 +19,23 @@
 - Inspector & Font Panels
 - ui/recovery.js
 - Site Plan Geometry
-- Text Edit Mode
+- EditMode
 - PDF Form Fields
-- Studio Rendering & Wiring
-- app.js
-- uid
-- Release Workflow
+- render.js
+- desktop-bridge.js
 - model.js
-- content-stream.js
+- Release Workflow
+- numberedGroups
+- cff.js
 - Manual Builder
-- Package Dependencies
+- package.json
 - SnapGuides
 - .onKey
-- toast
+- app.js
 - Playwright Test Setup
 - Page Organize & Numbering
 - Inline Text Editor
-- Access Data & Chapters
+- access.js
 - Electron Main Window
 - font-manager.js
 - FormDesign
@@ -48,62 +48,59 @@
 - Auto-Updater
 - edit-mode.js
 - Auto-Release Workflow
-- App
 - signature-extract.js
-- showDialog
+- App
 - licenses.mjs
-- EditMode
+- .onDown
 - Stream Limits & Ligatures
 - PathEditor
 - Page View
 - NSIS Installer Config
-- .build
-- Studio
+- devDependencies
 - Interaction Tests
 - File Access Grants
 - signature-panel.js
-- .constructor
+- scripts
 - SignatureTool
 - SignaturePad
+- e2e
 - High-Zoom Detail Renderer
 - Security Tests
-- .onKey
-- normalizeProject
+- dependencies
+- notifyDocumentState
 - wiring.js
 - Brand & Rendering Docs
 - Build Script
 - Path Recording
-- .resolveDown
+- .drawSelection
 - Text Layout Analysis
 - Electron Builder Base
 - PDF Renderer & Print
 - Feature Docs
-- fonts.js
+- active-content.js
 - Window State
 - Legacy 1.0 Editor
 - export.js
 - Zoom Gestures
-- forms.spec.js
+- pdf-lib
 - Zoom Tests
-- Signature Tests
+- overlays.js
 - Electron Fuses
 - Security & Update Docs
-- studio-speichern.spec.js
+- parseFontName
 - Redesign Skill
 - Font Licenses
 - Windows Build Target
 - Storage & Migration Docs
 - EXIF Photo Dates
 - Linux Build Target
-- Project Identity
 - Prettier Config
-- $$
+- Studio
 - Extra Resources
 - Session Start Hook
 - Images & Snap Lines Docs
 - Form Filling Docs
 - Browser-like Navigation Docs
-- preload.cjs
 - graphify-standalone.py
 - PdfSession
 
@@ -117,7 +114,7 @@
 7. `icon()` - 76 edges
 8. `PdfSession` - 73 edges
 9. `toast()` - 72 edges
-10. `start()` - 59 edges
+10. `start()` - 60 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `Legacy app shell (top bar, left panel, ctx bar, pages, nav, thumbs rail)` --semantically_similar_to--> `src/index.html HTML shell template`  [INFERRED] [semantically similar]
@@ -140,119 +137,115 @@
 - **Single-file build compared against legacy in regression tests** — readme_build_pipeline, src_index, readme_dist_pdf_editor_html, readme_regression_tests, legacy_pdf_editor_1_0 [EXTRACTED 1.00]
 - **Dokumentation workspace parts sharing device data** — liesmich_lageplan, liesmich_zugangsdaten, liesmich_fotodokumentation, liesmich_qr_codes, readme_studio [INFERRED 0.85]
 
-## Communities (91 total, 26 thin omitted)
+## Communities (89 total, 22 thin omitted)
 
 ### Community 0 - "Inspector & Font Panels"
-Cohesion: 0.07
-Nodes (83): abortError(), COMMANDS, DesktopFileHandle, fileError(), installDesktopBridge(), isDesktop, settle(), toBytes() (+75 more)
+Cohesion: 0.08
+Nodes (72): installTabStrip(), render(), startDrag(), installTitleBar(), chapterLabels(), referenceTargets(), accessForm(), blockForm() (+64 more)
 
 ### Community 1 - "ui/recovery.js"
-Cohesion: 0.20
-Nodes (13): reviveFileHandle(), db(), deleteCopy(), liveWindows(), loadCopy(), orphanCopies(), putCopy(), req() (+5 more)
+Cohesion: 0.26
+Nodes (11): db(), deleteCopy(), liveWindows(), loadCopy(), orphanCopies(), putCopy(), req(), run() (+3 more)
 
 ### Community 2 - "Site Plan Geometry"
 Cohesion: 0.08
-Nodes (60): centroid(), dist(), fmt(), formatArea(), formatLength(), inPolygon(), LEGEND_H, LEGEND_ROWS (+52 more)
+Nodes (57): centroid(), dist(), fmt(), formatArea(), formatLength(), inPolygon(), LEGEND_H, LEGEND_ROWS (+49 more)
 
 ### Community 4 - "PDF Form Fields"
-Cohesion: 0.10
-Nodes (43): appearanceColors(), appearanceFits(), applyFieldValue(), checkboxAppearances(), composeDA(), createField(), deleteField(), describeWidget() (+35 more)
+Cohesion: 0.08
+Nodes (52): appearanceColors(), appearanceFits(), applyFieldValue(), checkboxAppearances(), composeDA(), createField(), deleteField(), describeWidget() (+44 more)
 
-### Community 5 - "Studio Rendering & Wiring"
-Cohesion: 0.13
-Nodes (27): BODY, isEmptySection(), overlaysOf(), overlaySvg(), qrCaption(), qrSvg(), qrText(), serialSources() (+19 more)
-
-### Community 6 - "app.js"
+### Community 5 - "render.js"
 Cohesion: 0.11
-Nodes (20): MODE_TOOLS, objectIds, ZOOM_LEVELS, ZOOM_PRESETS, DANGEROUS_ACTIONS, describeRemoved(), hasRemoved(), N() (+12 more)
+Nodes (46): atomsPush(), chapterPages(), drawLines(), figureAtom(), resolveCell(), tableAtoms(), BODY, manualPages() (+38 more)
 
-### Community 7 - "uid"
-Cohesion: 0.13
-Nodes (31): manualEdit, DEFAULT_CATEGORIES(), newAccess(), newBlock(), newBox(), newCard(), newChapters(), newContact() (+23 more)
+### Community 6 - "desktop-bridge.js"
+Cohesion: 0.09
+Nodes (20): abortError(), COMMANDS, DesktopFileHandle, fileError(), installDesktopBridge(), isDesktop, reviveFileHandle(), settle() (+12 more)
+
+### Community 7 - "model.js"
+Cohesion: 0.07
+Nodes (69): BLOCK_TYPES, BUS_KINDS, clamp(), cleanAccess(), cleanChapters(), cleanLook(), cleanManualMeta(), cleanOverlays() (+61 more)
 
 ### Community 8 - "Release Workflow"
 Cohesion: 0.05
 Nodes (48): concurrency, cancel-in-progress, group, run, CSC_IDENTITY_AUTO_DISCOVERY, REF_NAME, skip_regression, jobs (+40 more)
 
-### Community 9 - "model.js"
-Cohesion: 0.10
-Nodes (32): appendToGroup(), BUS_KINDS, cleanAccess(), codeOffsets(), codeSep(), deviceHasData(), deviceOf(), FADES (+24 more)
+### Community 9 - "numberedGroups"
+Cohesion: 0.39
+Nodes (8): appendToGroup(), codeOffsets(), codeSep(), numberedGroups(), renumberByPosition(), setSymbolNumber(), symbolCode(), symbolNumber()
 
-### Community 10 - "content-stream.js"
-Cohesion: 0.14
-Nodes (15): bytesToHexString(), bytesToLatin1(), ContentOp, DELIMITERS, DictToken, formatNumber(), latin1ToBytes(), NameToken (+7 more)
+### Community 10 - "cff.js"
+Cohesion: 0.22
+Nodes (15): buildCffDisplayFont(), glyphNameCandidates(), readCffCharset(), readCffDict(), readCffIndex(), readUint16(), readUintN(), wrapCffAsOpenType() (+7 more)
 
 ### Community 11 - "Manual Builder"
-Cohesion: 0.16
-Nodes (44): atomsCallout(), atomsCards(), atomsFigsteps(), atomsFigure(), atomsOf(), atomsSigns(), atomsTable(), base() (+36 more)
+Cohesion: 0.18
+Nodes (42): atomsCallout(), atomsCards(), atomsFigsteps(), atomsFigure(), atomsOf(), atomsSigns(), atomsTable(), base() (+34 more)
 
-### Community 12 - "Package Dependencies"
-Cohesion: 0.05
-Nodes (43): author, name, dependencies, pako@1.0.11, pdf-lib@1.17.1, @pdf-lib/fontkit@1.1.1, pdfjs-dist@4.10.38, qrcode-generator@2.0.4 (+35 more)
+### Community 12 - "package.json"
+Cohesion: 0.15
+Nodes (12): author, name, description, engines, node, license, main, name (+4 more)
 
-### Community 15 - "toast"
-Cohesion: 0.19
-Nodes (6): overlayEdit, QR_CAPTION_H, readImage(), pickFiles(), toast(), withBusy()
+### Community 15 - "app.js"
+Cohesion: 0.11
+Nodes (21): MODE_TOOLS, objectId(), objectIds, readStripSetting(), readWorkspace(), ZOOM_LEVELS, ZOOM_PRESETS, keepTopBarFitting() (+13 more)
 
 ### Community 16 - "Playwright Test Setup"
-Cohesion: 0.08
-Nodes (7): @playwright/test, launch(), openPdf(), setup(), expectUnreadable(), labels(), openManual()
+Cohesion: 0.06
+Nodes (10): @playwright/test, launch(), openPdf(), runBoth(), setup(), expectUnreadable(), labels(), openManual() (+2 more)
 
 ### Community 17 - "Page Organize & Numbering"
 Cohesion: 0.17
 Nodes (7): approxEqual(), copyRunningElements(), detectPageStructure(), formatPageNumber(), updatePageNumbers(), blockToEditLines(), OrganizeMode
 
 ### Community 18 - "Inline Text Editor"
-Cohesion: 0.11
-Nodes (8): LIGATURES, cssRgb(), isLetter(), isLowercase(), parseCssColor(), roundTo(), TextEditor, trackPointer()
+Cohesion: 0.09
+Nodes (7): cssRgb(), isLetter(), isLowercase(), parseCssColor(), roundTo(), TextEditor, trackPointer()
 
-### Community 19 - "Access Data & Chapters"
-Cohesion: 0.15
-Nodes (34): accessPages(), blockHasData(), cellLines(), hasSecrets(), valueText(), atomsPush(), chapterPages(), drawLines() (+26 more)
+### Community 19 - "access.js"
+Cohesion: 0.24
+Nodes (13): accessPages(), blockHasData(), cellLines(), hasSecrets(), valueText(), cache, context(), ctxs (+5 more)
 
 ### Community 20 - "Electron Main Window"
 Cohesion: 0.18
 Nodes (36): frameColors(), start(), activateNear(), activateTab(), applyFrameColors(), broadcastTabs(), closeTab(), command() (+28 more)
 
 ### Community 21 - "font-manager.js"
-Cohesion: 0.05
-Nodes (36): buildCffDisplayFont(), glyphNameCandidates(), readCffCharset(), readCffDict(), readCffIndex(), readUint16(), readUintN(), wrapCffAsOpenType() (+28 more)
-
-### Community 22 - "FormDesign"
-Cohesion: 0.14
-Nodes (9): FIELD_FONTS, ALL, DEFAULT_SIZE, FONT_SIZES, FormDesign, fromHex(), HANDLES, toHex() (+1 more)
+Cohesion: 0.06
+Nodes (18): @pdf-lib/fontkit, FontFamily, fontKey(), FontLibrary, FontManager, hex4(), isBlankChar(), nextFontFaceName() (+10 more)
 
 ### Community 23 - "PdfFont"
-Cohesion: 0.14
-Nodes (15): isSpaceCodePoint(), readAdvanceWidths(), readCmaps(), readFontInfo(), readGlyphData(), readLeftSideBearings(), viewOf(), glyphNameToUnicode() (+7 more)
+Cohesion: 0.10
+Nodes (22): glyphIdSetCache, isSpaceCodePoint(), mappedGlyphIds(), parseSfnt(), readAdvanceWidths(), readCmaps(), readFontInfo(), readGlyphData() (+14 more)
 
 ### Community 24 - "Desktop Security & Menu"
-Cohesion: 0.13
-Nodes (20): contentSecurityPolicy(), EDITOR_HTML, ICON, printErrorText(), ROOT, splitEditor(), hardenSession(), lastDirectory() (+12 more)
+Cohesion: 0.11
+Nodes (22): contentSecurityPolicy(), EDITOR_HTML, ICON, printErrorText(), ROOT, splitEditor(), hardenSession(), lastDirectory() (+14 more)
 
 ### Community 25 - "Regression Test Helpers"
 Cohesion: 0.17
-Nodes (16): canvasHashes(), clientPoint(), findBlock(), FIXTURE, idle(), inkHash(), LAYOUT, ROOT (+8 more)
+Nodes (15): canvasHashes(), clientPoint(), findBlock(), FIXTURE, idle(), inkHash(), LAYOUT, ROOT (+7 more)
 
 ### Community 26 - "Desktop Tests & Node APIs"
-Cohesion: 0.08
-Nodes (9): DIR, GRAFIK, ELECTRON, ROOT, waitForDocument(), DIR, dokument(), makePng() (+1 more)
+Cohesion: 0.06
+Nodes (16): DIST, PORT, TYPES, child, cli, ROOT, DIR, GRAFIK (+8 more)
 
 ### Community 27 - "Signature Storage (IndexedDB)"
-Cohesion: 0.16
-Nodes (25): addSignature(), deleteSignature(), emit(), getDefaultSignature(), getSignature(), listeners, listSignatures(), newId() (+17 more)
+Cohesion: 0.17
+Nodes (24): addSignature(), deleteSignature(), emit(), getDefaultSignature(), getSignature(), listeners, listSignatures(), newId() (+16 more)
 
 ### Community 28 - "studio.js"
-Cohesion: 0.11
-Nodes (33): ACCESS_BLOCKS, BLOCK_TYPES, DOC_PARTS, PHOTO_LAYOUTS, SYMBOLS, AUTO, autoMeta(), db() (+25 more)
+Cohesion: 0.09
+Nodes (40): manualEdit, FONTS, overlayEdit, documentLabel(), siteTools, AUTO, autoMeta(), db() (+32 more)
 
 ### Community 29 - "Auto-Updater"
 Cohesion: 0.16
-Nodes (21): autoCheck(), manualCheck(), allowedUrl(), DOWNLOAD_HOSTS, isNewer(), LATEST_URL, pickUpdate(), REPO (+13 more)
+Nodes (22): autoCheck(), installUpdate(), manualCheck(), allowedUrl(), DOWNLOAD_HOSTS, isNewer(), LATEST_URL, pickUpdate() (+14 more)
 
 ### Community 30 - "edit-mode.js"
-Cohesion: 0.15
-Nodes (20): bezier(), flattenSeg(), insideFill(), nearestSegment(), pointSegment(), subpathsBox(), boxContains(), boxInside() (+12 more)
+Cohesion: 0.25
+Nodes (10): subpathsBox(), isTranslationMatrix(), boxContains(), boxInside(), hexToRgb(), mmToPt(), ptToMm(), rgbToHex() (+2 more)
 
 ### Community 31 - "Auto-Release Workflow"
 Cohesion: 0.09
@@ -266,21 +259,25 @@ Nodes (19): clamp01(), cropToAlpha(), dilate(), estimateBackground(), extractSig
 Cohesion: 0.13
 Nodes (10): FONT_DIR, line, lock, OUT_DIR, packages, parts, pkg, ROOT (+2 more)
 
+### Community 36 - ".onDown"
+Cohesion: 0.23
+Nodes (3): objectHits(), pickObject(), pxPerPt()
+
 ### Community 37 - "Stream Limits & Ligatures"
-Cohesion: 0.17
-Nodes (20): pdf-lib, applyClusters(), attachClusters(), clusterObjects(), assertDecodedSize(), checkDecodedSize(), checkFlate(), earlyChange() (+12 more)
+Cohesion: 0.21
+Nodes (16): LIGATURES, assertDecodedSize(), checkDecodedSize(), checkFlate(), earlyChange(), filterNames(), lzwDecodedLength(), MAX_CONTENT_BYTES (+8 more)
 
 ### Community 38 - "PathEditor"
-Cohesion: 0.14
-Nodes (14): cloneSubpaths(), deleteNodes(), deleteSegment(), detachSegment(), moveNodes(), nearestNode(), piece(), segEnds() (+6 more)
+Cohesion: 0.11
+Nodes (25): bezier(), cloneSubpaths(), deleteNodes(), deleteSegment(), detachSegment(), flattenSeg(), insideFill(), moveNodes() (+17 more)
 
 ### Community 40 - "NSIS Installer Config"
 Cohesion: 0.11
 Nodes (19): nsis, allowElevation, allowToChangeInstallationDirectory, artifactName, createDesktopShortcut, createStartMenuShortcut, deleteAppDataOnUninstall, differentialPackage (+11 more)
 
-### Community 42 - "Studio"
-Cohesion: 0.16
-Nodes (4): pruneImages(), fileLabel(), rememberCompany(), Studio
+### Community 42 - "devDependencies"
+Cohesion: 0.15
+Nodes (13): devDependencies, @agentclientprotocol/claude-agent-acp@0.100.0, @e2e-dev/acp@0.1.0, electron@44.5.1, electron-builder@26.15.3, esbuild@0.28.2, @playwright/test@1.56.1, prettier@3.9.9 (+5 more)
 
 ### Community 43 - "Interaction Tests"
 Cohesion: 0.14
@@ -292,27 +289,31 @@ Nodes (8): FileAccess, FileAccessError, isPdfPath(), MESSAGES, pdfPathsFromArgv(
 
 ### Community 45 - "signature-panel.js"
 Cohesion: 0.15
-Nodes (18): CAPTURE_DPI, decodeImageFile(), downscaleImage(), encodePng(), imageToCanvas(), MAX_PROCESS_PX, pickPageRegion(), renderPdfRegion() (+10 more)
+Nodes (17): CAPTURE_DPI, decodeImageFile(), downscaleImage(), encodePng(), imageToCanvas(), MAX_PROCESS_PX, pickPageRegion(), renderPdfRegion() (+9 more)
 
-### Community 46 - ".constructor"
-Cohesion: 0.24
-Nodes (3): readStripSetting(), readWorkspace(), FontsPanel
+### Community 46 - "scripts"
+Cohesion: 0.15
+Nodes (13): scripts, app, build, build:desktop, dev, dist:linux, dist:win, fixtures (+5 more)
+
+### Community 49 - "e2e"
+Cohesion: 0.27
+Nodes (6): serve, DOKUMENT_PDF_B64, e2e@0.22.0, @e2e-dev/web@0.15.4, e2e, @e2e-dev/web
 
 ### Community 50 - "High-Zoom Detail Renderer"
-Cohesion: 0.16
+Cohesion: 0.18
 Nodes (6): area(), DETAIL_MAX_PX, DetailRenderer, grow(), intersect(), OVERSCAN
 
 ### Community 51 - "Security Tests"
-Cohesion: 0.14
-Nodes (12): extractText(), activePdf(), badWindowBomb(), bombPdf(), entries(), inspect(), modelAfterOpen(), N() (+4 more)
+Cohesion: 0.17
+Nodes (11): extractText(), activePdf(), badWindowBomb(), bombPdf(), entries(), inspect(), modelAfterOpen(), N() (+3 more)
 
-### Community 53 - "normalizeProject"
-Cohesion: 0.30
-Nodes (15): clamp(), cleanChapters(), cleanLook(), cleanManualMeta(), cleanOverlays(), cleanPhotos(), cleanScale(), cleanSite() (+7 more)
+### Community 52 - "dependencies"
+Cohesion: 0.22
+Nodes (9): dependencies, pako@1.0.11, pdf-lib@1.17.1, @pdf-lib/fontkit@1.1.1, pdfjs-dist@4.10.38, qrcode-generator@2.0.4, pako, pdfjs-dist (+1 more)
 
 ### Community 54 - "wiring.js"
 Cohesion: 0.18
-Nodes (20): color(), badgeColor(), boxText(), busLabel(), catColor(), colRight(), COLS, DIAGRAM (+12 more)
+Nodes (18): badgeColor(), boxText(), busLabel(), catColor(), colRight(), COLS, DIAGRAM, DIAGRAM_LANDSCAPE (+10 more)
 
 ### Community 55 - "Brand & Rendering Docs"
 Cohesion: 0.18
@@ -323,12 +324,12 @@ Cohesion: 0.23
 Nodes (12): build(), buildWorkerSource(), fill(), FONT_DIR, ICON_DIR, loadBundledFonts(), loadLogos(), OUT_FILE (+4 more)
 
 ### Community 57 - "Path Recording"
-Cohesion: 0.14
-Nodes (16): interpretContent(), resolveColorSpace(), toRgb(), IDENTITY_MATRIX, invertMatrix(), multiplyMatrix(), toNumber(), transformPoint() (+8 more)
+Cohesion: 0.09
+Nodes (28): interpretContent(), resolveColorSpace(), toRgb(), bytesToHexString(), bytesToLatin1(), ContentOp, DELIMITERS, DictToken (+20 more)
 
 ### Community 59 - "Text Layout Analysis"
-Cohesion: 0.18
-Nodes (11): PdfFontCache, repairStreamLengths(), buildTextBlocks(), buildTextLines(), finalizeBlock(), findNear(), hasJustifiedRightEdge(), isSpaceChar() (+3 more)
+Cohesion: 0.26
+Nodes (10): PageTooComplexError, buildTextBlocks(), buildTextLines(), finalizeBlock(), findNear(), hasJustifiedRightEdge(), isSpaceChar(), isUpright() (+2 more)
 
 ### Community 60 - "Electron Builder Base"
 Cohesion: 0.17
@@ -338,37 +339,41 @@ Nodes (11): appId, artifactName, asar, copyright, directories, output, electronL
 Cohesion: 0.18
 Nodes (10): Bundled pdf-lib + fontkit (PDFDocument, xref writer), ToUnicode CMap generation (Adobe-Identity-UCS), Fotodokumentation linked to Lageplan, Lageplan (site plan with devices, Richtfunk, Maßstab), Bild / QR-Code placement, Two workspaces: PDF and Dokumentation, Zugangsdaten (device credentials), PdfSession (session.js) (+2 more)
 
-### Community 63 - "fonts.js"
-Cohesion: 0.36
-Nodes (6): css, ensureBarlow(), FACES, gunzip(), toBase64(), resetMeasure()
+### Community 63 - "active-content.js"
+Cohesion: 0.33
+Nodes (6): DANGEROUS_ACTIONS, describeRemoved(), hasRemoved(), N(), REMOVED_ANNOTATIONS, withoutActiveContent()
 
 ### Community 64 - "Window State"
 Cohesion: 0.31
 Nodes (9): bounds(), DEFAULT_SIZE, loadWindowState(), MIN_SIZE, rememberTheme(), stateFile(), THEMES, trackWindowState() (+1 more)
 
 ### Community 65 - "Legacy 1.0 Editor"
-Cohesion: 0.24
-Nodes (10): PDF-Editor 1.0 (legacy single-file build), Legacy app shell (top bar, left panel, ctx bar, pages, nav, thumbs rail), Legacy CSS design tokens (:root --ink/--acc ...), Legacy start page (drop zone, features, recent), Legacy organize-pages UI (insert, rotate, duplicate, delete, export), Legacy inline text editor (te-frame), Seiten organisieren / Seitenzahlen anpassen, Text bearbeiten (+2 more)
+Cohesion: 0.22
+Nodes (11): PDF-Editor 1.0 (legacy single-file build), Legacy app shell (top bar, left panel, ctx bar, pages, nav, thumbs rail), Legacy CSS design tokens (:root --ink/--acc ...), Legacy start page (drop zone, features, recent), IndexedDB pdf-editor v1, Legacy organize-pages UI (insert, rotate, duplicate, delete, export), Legacy inline text editor (te-frame), Seiten organisieren / Seitenzahlen anpassen (+3 more)
 
 ### Community 66 - "export.js"
-Cohesion: 0.11
-Nodes (16): fileErrorReason(), assertPrintable(), canMakePdf(), contentFingerprint(), embedProject(), makePdf(), maker(), printHtml() (+8 more)
+Cohesion: 0.13
+Nodes (17): assertPrintable(), contentFingerprint(), embedProject(), hasProject(), makePdf(), maker(), readProject(), TooLargeError (+9 more)
 
-### Community 68 - "forms.spec.js"
-Cohesion: 0.22
-Nodes (3): formPdf(), N(), savedBytes()
+### Community 68 - "pdf-lib"
+Cohesion: 0.11
+Nodes (4): pdf-lib, formPdf(), N(), savedBytes()
 
 ### Community 69 - "Zoom Tests"
 Cohesion: 0.20
 Nodes (4): BUILDS, objectsOf(), zoomIdle(), zoomOnto()
+
+### Community 70 - "overlays.js"
+Cohesion: 0.52
+Nodes (6): overlaySvg(), QR_CAPTION_H, qrCaption(), qrSvg(), qrText(), serialSources()
 
 ### Community 71 - "Electron Fuses"
 Cohesion: 0.25
 Nodes (8): electronFuses, enableCookieEncryption, enableEmbeddedAsarIntegrityValidation, enableNodeCliInspectArguments, enableNodeOptionsEnvironmentVariable, grantFileProtocolExtraPrivileges, onlyLoadAppFromAsar, runAsNode
 
 ### Community 72 - "Security & Update Docs"
-Cohesion: 0.25
-Nodes (4): Update-Suche über GitHub, Desktop-App (Electron), Release / Auto-Release GitHub workflows, Updater (GitHub releases, SHA-256 check)
+Cohesion: 0.18
+Nodes (8): Former name PDFix (until 2.13), Update-Suche über GitHub, LIESMICH user manual (PlantPDF), Desktop-App (Electron), Julius Steiner (Developer), PlantPDF, Release / Auto-Release GitHub workflows, Updater (GitHub releases, SHA-256 check)
 
 ### Community 75 - "Font Licenses"
 Cohesion: 0.38
@@ -379,8 +384,8 @@ Cohesion: 0.29
 Nodes (7): arch, target, win, icon, legalTrademarks, requestedExecutionLevel, target
 
 ### Community 77 - "Storage & Migration Docs"
-Cohesion: 0.29
-Nodes (6): IndexedDB pdf-editor v1, Automatische Wiederherstellung, Umstieg von Version 1.0 (storage migration), Unterschrift hinterlegen und einsetzen, IndexedDB stores (pdf-editor v2, pdfix-studio), Signature module (extract, capture, draw, store)
+Cohesion: 0.33
+Nodes (5): Automatische Wiederherstellung, Umstieg von Version 1.0 (storage migration), Unterschrift hinterlegen und einsetzen, IndexedDB stores (pdf-editor v2, pdfix-studio), Signature module (extract, capture, draw, store)
 
 ### Community 79 - "EXIF Photo Dates"
 Cohesion: 0.60
@@ -390,13 +395,13 @@ Nodes (5): ascii(), entries(), exifDate(), photoDate(), toIso()
 Cohesion: 0.50
 Nodes (4): linux, category, icon, target
 
-### Community 81 - "Project Identity"
-Cohesion: 0.67
-Nodes (4): Former name PDFix (until 2.13), LIESMICH user manual (PlantPDF), Julius Steiner (Developer), PlantPDF
-
 ### Community 82 - "Prettier Config"
 Cohesion: 0.50
 Nodes (3): printWidth, singleQuote, trailingComma
+
+### Community 83 - "Studio"
+Cohesion: 0.05
+Nodes (9): canMakePdf(), printHtml(), withoutSecrets(), toolOf(), failMessage(), inArea(), rememberCompany(), Studio (+1 more)
 
 ### Community 84 - "Extra Resources"
 Cohesion: 0.67
@@ -408,24 +413,24 @@ Nodes (3): extraResources, from, to
 
 ## Knowledge Gaps
 - **18 isolated node(s):** `plantpdf-app.svg App icon (graphite tile)`, `Zoomen bis 3200 % und Hand-Werkzeug`, `Schnelldruck (silent print via ProgID verbs)`, `ToUnicode CMap generation (Adobe-Identity-UCS)`, `Fotodokumentation linked to Lageplan` (+13 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 406 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **26 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 417 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **22 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `pdf-lib` connect `Stream Limits & Ligatures` to `export.js`, `licenses.mjs`, `PDF Form Fields`, `forms.spec.js`, `app.js`, `Signature Tests`, `Zoom Tests`, `Interaction Tests`, `Package Dependencies`, `Playwright Test Setup`, `Page Organize & Numbering`, `Security Tests`, `font-manager.js`, `PdfFont`, `Path Recording`, `Desktop Tests & Node APIs`, `studio.js`?**
-  _High betweenness centrality (0.245) - this node is a cross-community bridge._
+- **Why does `pdf-lib` connect `pdf-lib` to `export.js`, `licenses.mjs`, `PDF Form Fields`, `Stream Limits & Ligatures`, `Zoom Tests`, `Interaction Tests`, `package.json`, `app.js`, `Playwright Test Setup`, `Security Tests`, `dependencies`, `font-manager.js`, `PdfFont`, `Path Recording`, `Desktop Tests & Node APIs`, `studio.js`, `active-content.js`?**
+  _High betweenness centrality (0.235) - this node is a cross-community bridge._
 - **What connects `plantpdf-app.svg App icon (graphite tile)`, `Zoomen bis 3200 % und Hand-Werkzeug`, `Schnelldruck (silent print via ProgID verbs)` to the rest of the system?**
   _18 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Inspector & Font Panels` be split into smaller, more focused modules?**
-  _Cohesion score 0.06647093364650616 - nodes in this community are weakly interconnected._
-- **Why does `$$` connect `$$` to `Inspector & Font Panels`, `ui/recovery.js`, `Site Plan Geometry`, `Text Edit Mode`, `app.js`, `uid`, `.onKey`, `toast`, `Page Organize & Numbering`, `FormDesign`, `studio.js`, `edit-mode.js`, `App`, `showDialog`, `EditMode`, `.build`, `Studio`, `signature-panel.js`, `.renderRibbon`, `High-Zoom Detail Renderer`, `.onKey`, `.resolveDown`, `export.js`?**
-  _High betweenness centrality (0.068) - this node is a cross-community bridge._
+  _Cohesion score 0.08314263920671243 - nodes in this community are weakly interconnected._
+- **Why does `$$` connect `FormDesign` to `.openBytes`, `Inspector & Font Panels`, `App`, `Site Plan Geometry`, `EditMode`, `.onDown`, `PDF Form Fields`, `ui/recovery.js`, `.build`, `signature-panel.js`, `.onKey`, `app.js`, `Page Organize & Numbering`, `High-Zoom Detail Renderer`, `Studio`, `notifyDocumentState`, `studio.js`, `edit-mode.js`?**
+  _High betweenness centrality (0.078) - this node is a cross-community bridge._
 - **Should `Site Plan Geometry` be split into smaller, more focused modules?**
-  _Cohesion score 0.07972027972027972 - nodes in this community are weakly interconnected._
-- **Why does `start()` connect `Electron Main Window` to `Desktop Security & Menu`, `Window State`, `File Access Grants`, `Auto-Updater`?**
-  _High betweenness centrality (0.052) - this node is a cross-community bridge._
+  _Cohesion score 0.08397337429595494 - nodes in this community are weakly interconnected._
+- **Why does `EditMode` connect `EditMode` to `Inspector & Font Panels`, `App`, `.onDown`, `PathEditor`, `parseFontName`, `.build`, `.onKey`, `app.js`, `Inline Text Editor`, `.drawSelection`, `edit-mode.js`?**
+  _High betweenness centrality (0.056) - this node is a cross-community bridge._
 
 ### Low-confidence Hints
 _AMBIGUOUS edges — the extractor was unsure. Verify before acting on these._
