@@ -9,7 +9,7 @@
  * (z. B. `xvfb-run -a npx playwright test tests/desktop.spec.js`).
  */
 import { test, expect, _electron as electron } from '@playwright/test';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import {
   chmodSync,
   copyFileSync,
@@ -880,6 +880,73 @@ test('Desktop-App: Bereichswechsel ohne Warten – vorgewärmte Startseite statt
     await docs.locator('#tHome').click();
     await expect.poll(active).toBe(next.id);
     expect(await tabCount(app)).toBe(3);
+  } finally {
+    await quit(app);
+  }
+});
+
+// Echte Mausbewegung über die Tabs (nur mit xdotool, z. B. unter xvfb): Die Klickfläche jedes Tabs muss
+// durchgehend sein. Liegen weitere Ansichten sichtbar darunter, fangen deren Titelleisten (Verschiebe-
+// Flächen) die Maus stellenweise ab – so geschehen in 2.25.1.
+const hasXdotool = (() => {
+  try {
+    execFileSync('xdotool', ['version'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+test('Desktop-App: Klickfläche der Tabs durchgehend (echte Maus, auch nach Bereichswechsel)', async () => {
+  test.skip(!hasXdotool, 'xdotool fehlt');
+  const { app, page, paths } = await launchWith(['a.pdf', 'b.pdf']);
+  try {
+    await waitForDocument(page, 'b.pdf');
+    await app.evaluate(({ dialog, Menu }, file) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] });
+      Menu.getApplicationMenu().getMenuItemById('open').click();
+    }, paths[0]);
+    await expect.poll(() => tabCount(app)).toBe(2);
+    const bounds = await app.evaluate(() => {
+      const w = globalThis.__plantpdf.win();
+      w.unmaximize();
+      w.setPosition(0, 0);
+      w.setSize(1280, 800);
+      return w.getContentBounds();
+    });
+    // Dokumentation anlegen und zurück: so liegen im echten Gebrauch weitere Tabs hinter dem aktiven
+    const pdfPage = await activePage(app);
+    await pdfPage.locator('#wsDocs').click();
+    await expect.poll(async () => (await activePage(app)) !== pdfPage).toBe(true);
+    let p = await activePage(app);
+    await p.locator('.tpl[data-tpl="manual"]').click();
+    await expect(p.locator('#studio .sd-page').first()).toBeVisible();
+    await p.locator('#wsPdf').click();
+    await expect.poll(() => mainWindowTitle(app)).toMatch(/\.pdf – PlantPDF$/);
+    p = await activePage(app);
+    await p.waitForTimeout(500);
+    const tabs = await p.evaluate(() => {
+      window.__hits = [];
+      for (const el of document.querySelectorAll('#tabs .xtab')) el.addEventListener('pointermove', (e) => window.__hits.push(Math.round(e.clientX)));
+      return [...document.querySelectorAll('#tabs .xtab')].map((el) => {
+        const r = el.getBoundingClientRect();
+        return { name: el.title, x0: Math.ceil(r.left) + 1, x1: Math.floor(r.right) - 1, y: Math.round(r.top + r.height / 2) };
+      });
+    });
+    expect(tabs).toHaveLength(2);
+    for (const t of tabs) {
+      for (let x = t.x0; x <= t.x1; x += 3) {
+        execFileSync('xdotool', ['mousemove', String(bounds.x + x), String(bounds.y + t.y)]);
+        await new Promise((r) => setTimeout(r, 12));
+      }
+      execFileSync('xdotool', ['mousemove', String(bounds.x + 5), String(bounds.y + 400)]);
+    }
+    const hits = await p.evaluate(() => window.__hits);
+    for (const t of tabs) {
+      const missing = [];
+      for (let x = t.x0; x <= t.x1; x += 3) if (!hits.some((h) => Math.abs(h - x) <= 1)) missing.push(x);
+      expect(missing, `Tab „${t.name}“: keine Maus an x = ${missing.join(', ')}`).toEqual([]);
+    }
   } finally {
     await quit(app);
   }
