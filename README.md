@@ -153,6 +153,25 @@ auch dort. Als root startet Chromium nur mit `--no-sandbox` (setzt der Test selb
 Zoom zur Mausposition und per Pinch, Hand-Werkzeug, Deckung von Auswahlrahmen und Darstellung bei
 3200 %, Speicherbegrenzung der Canvas, Bildlauf-Leistung sowie Verschieben und Speichern bei 3200 %.
 
+### KI-Tests mit e2e
+
+`e2e/` enthält Tests mit [e2e](https://github.com/tester-army/e2e): Ein KI-Agent bedient die
+Browser-Fassung wie ein Mensch (`agent.act`, `agent.assert`), dazu exakte Prüfungen (`expect`).
+Abgedeckt sind die Rückfrage beim Schließen (Dokumentation und PDF), Speichern mit Haken und
+„Zuletzt bearbeitet“, der Bereichswechsel und „Messen“ im Lageplan.
+
+```bash
+npm run test:e2e                          # baut dist/ und führt alle e2e-Tests aus
+npm run test:e2e -- tests/pdf.e2e.ts      # nur ein Test (Pfad relativ zu e2e/)
+```
+
+Die Agent-Schritte laufen über das angemeldete **Claude Code** (Modell Sonnet, Anmeldung mit
+`claude`); ein API-Schlüssel ist nicht nötig, jeder Lauf verbraucht aber etwas vom Kontingent
+(alle Tests zusammen etwa 16 Modellaufrufe). Bestandene Schritte spielt e2e beim nächsten Lauf
+ohne Modell ab (Cache in `e2e/.e2e/`, nicht im Repository). `scripts/e2e.mjs` schaltet die
+Telemetrie an den Hersteller ab. Die Desktop-App (Tabs, Fenster) erreichen diese Tests nicht –
+dafür ist `tests/desktop.spec.js` da.
+
 ## Darstellung bei hohem Zoom
 
 Jede Seite hat einen **Vorschau-Canvas** (ganze Seite, höchstens 4 MP, per CSS gestreckt) und bei

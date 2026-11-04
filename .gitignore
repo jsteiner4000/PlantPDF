@@ -3,6 +3,8 @@ dist/
 test-results/
 playwright-report/
 release/
+# e2e: Ergebnisse, Protokolle und Wiedergabe-Cache der KI-Tests (je Rechner)
+e2e/.e2e/
 
 # graphify: keep the graph, report and viewer; ignore caches and local state
 graphify-out/*
