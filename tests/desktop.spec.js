@@ -867,6 +867,10 @@ test('Desktop-App: Bereichswechsel ohne Warten – vorgewärmte Startseite statt
     // der Schieber glitt im Tab der Anleitung schon zu „PDF“; dort steht er danach wieder auf „Dokumentation“
     await expect.poll(() => docs.evaluate(() => [window.pdfEditor.previewing, document.documentElement.dataset.ws])).toEqual([null, 'docs']);
     expect(await page.evaluate(() => document.documentElement.dataset.ws)).toBe('pdf');
+    // der vordere Tab hat seine Verschiebe-Flächen (Titelleiste), verdeckt vorbereitete Tabs nicht
+    // (unter Windows würden deren Flächen sonst Klicks auf die Tabs abfangen)
+    await expect.poll(() => page.evaluate(() => document.documentElement.classList.contains('covered'))).toBe(false);
+    expect(await app.evaluate(() => globalThis.__plantpdf.win().contentView.children.filter((v) => v.getVisible()).length)).toBe(1);
     // „Dokumentation“: wieder in der Anleitung
     await page.locator('#wsDocs').click();
     await expect.poll(async () => (await activePage(app)) === docs).toBe(true);

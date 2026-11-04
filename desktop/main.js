@@ -254,8 +254,7 @@ function start() {
     view.webContents.setVisualZoomLevelLimits(1, 1);
     view.webContents.loadURL(START_URL);
     if (activate || !w.active) activateTab(tab);
-    // die vorgewärmte Startseite bleibt sichtbar, aber verdeckt ganz hinten: sie hat dann schon ein Bild
-    else view.setVisible(spare);
+    else view.setVisible(false);
     broadcastTabs(w);
     return tab;
   }
@@ -294,13 +293,14 @@ function start() {
       // der bisherige Tab zeigte beim Umschalten schon den neuen Bereich: zurück auf seinen eigenen
       if (prev && prev !== tab && !prev.closed && usable(prev)) command('settleWorkspace', { tab: prev });
       w.shown = null;
-      // Verborgene Ansichten drosselt Chromium auf etwa ein Bild pro Sekunde – geholt brauchen sie dann
-      // ~200 ms bis zum ersten Bild. Die zuletzt genutzten Tabs beider Bereiche (Ziel des Umschalters)
-      // und die vorgewärmte Startseite bleiben deshalb sichtbar, nur verdeckt; die übrigen ruhen.
-      const warm = new Set(Object.values(w.lastByWs || {}));
-      for (const t of w.tabs) if (t !== tab && !t.closed && !t.spare) t.view.setVisible(warm.has(t));
+      // Nur der vordere Tab ist sichtbar: Unter Windows zählen sonst die Verschiebe-Flächen der Titelleiste
+      // verdeckter Tabs mit – ein Klick auf einen Tab würde dort zum Verschieben des Fensters.
+      for (const t of w.tabs) if (t !== tab && !t.closed) t.view.setVisible(false);
+      setCovered(tab, false);
       if (usable(tab) && w.base.isFocused()) tab.view.webContents.focus();
     };
+    // verdeckt vorbereiten: solange ohne Verschiebe-Flächen (siehe bringFront)
+    if (prev && prev !== tab) setCovered(tab, true);
     tab.view.setVisible(true);
     // nichts zu verdecken (erster Tab, vorderer geschlossen) oder schon vorn: sofort
     if (!prev || prev === tab || prev.closed || !usable(prev) || tab.gone) {
@@ -313,6 +313,16 @@ function start() {
       .finally(() => w.shown === shown && (w.shown = null));
     w.shown = shown;
     return shown;
+  }
+
+  /**
+   * Verdeckter Tab: ohne Verschiebe-Flächen in seiner Titelleiste (Windows wertet die Flächen aller
+   * sichtbaren Ansichten aus). Wird mitgemerkt, damit ein Tab nach dem Laden den richtigen Stand bekommt.
+   */
+  function setCovered(tab, covered) {
+    if (tab.covered === covered) return;
+    tab.covered = covered;
+    if (tab.ready && usable(tab)) command('covered', { tab, data: covered });
   }
 
   /**
@@ -329,8 +339,8 @@ function start() {
   }
 
   /**
-   * Vorgewärmte Startseite: Jedes Fenster hält neben dem gezeigten Tab eine fertig geladene Startseite
-   * in Reserve (schon kurz nach dem Start, dann jedes Mal, wenn sie gebraucht wurde). Der Wechsel zur Startseite bzw. in den
+   * Vorgewärmte Startseite: Jedes Fenster hält neben dem gezeigten Tab eine fertig geladene, verborgene
+   * Startseite in Reserve (schon kurz nach dem Start, dann jedes Mal, wenn sie gebraucht wurde). Der Wechsel zur Startseite bzw. in den
    * anderen Bereich ist dann sofort da, statt erst das ganze Programm in einem neuen Tab zu laden.
    */
   function ensureSpare(w) {
@@ -1141,6 +1151,7 @@ function start() {
       tab.ready = true;
       tab.gone = false;
       tab.tabsSig = null; // (neu geladen: Tab-Leiste wieder schicken)
+      if (tab.covered) command('covered', { tab, data: true });
       for (const resolve of tab.waiting.splice(0)) resolve();
       broadcastTabs(tab.win);
       if (tab.workspace) {

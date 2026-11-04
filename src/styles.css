@@ -3366,3 +3366,10 @@ select.ff:focus {
     animation: none;
   }
 }
+
+/* Desktop-App: ein Tab, der verdeckt unter dem aktiven liegt, hat keine Verschiebe-Flächen – sonst
+   würden Klicks auf die Tabs des vorderen unter Windows zum Verschieben des Fensters */
+html.covered,
+html.covered * {
+  -webkit-app-region: no-drag !important;
+}

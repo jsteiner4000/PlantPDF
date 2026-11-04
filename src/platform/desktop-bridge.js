@@ -166,6 +166,8 @@ const COMMANDS = {
   openDraft: (data) => settle(data && typeof data.id === 'string' && app.studio.openDraft(data.id)),
   restoreRecovery: (data) => settle(data && typeof data.id === 'string' && app.recovery.restoreById(data.id)),
   setWorkspace: (ws) => app.switchWorkspace(ws, { local: true }),
+  /** Tab liegt verdeckt unter einem anderen: Titelleiste ohne Verschiebe-Flächen (Windows). */
+  covered: (on) => document.documentElement.classList.toggle('covered', !!on),
   /** Ein anderer Tab ist jetzt vorn: Umschalter dieses Tabs wieder auf den eigenen Bereich. */
   settleWorkspace: () => app.settleWorkspace(),
   /** Nur im ersten Tab nach dem Start: gesicherte Kopien anbieten. */
