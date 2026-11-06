@@ -5,7 +5,7 @@
  * Ergebnis von `renderDocument`: { pages: [{ svg, section, kind, hits, layout? }] }. `hits` sind die
  * anklickbaren Bereiche einer Seite (Rechtecke in pt) für die Auswahl in der Vorschau.
  */
-import { C, PAGE, esc, isLandscape, line, n, rect, setOrientation, text, typesetter } from './svg.js';
+import { C, PAGE, esc, isLandscape, line, n, rect, setHouseColor, setOrientation, text, typesetter } from './svg.js';
 import { DIAGRAM, layoutWiring, legendSvg, terminalPages, wiringDiagramSvg } from './wiring.js';
 import { accessPages } from './access.js';
 import { sitePages } from './site.js';
@@ -13,11 +13,19 @@ import { photoPages } from './photos.js';
 import { chapterPages } from './chapters.js';
 import { overlaySvg, overlaysOf } from './overlays.js';
 import { BODY, manualCover, manualFrame, manualPages, manualToc } from './manual.js';
-import { isEmptySection, sectionTitle } from './model.js';
+import { COVER_FIELDS, cleanPageLook, isEmptySection, sectionTitle } from './model.js';
 
 const LOGO = { y: 42, w: 175, h: 44.144 };
-/** Logo oben rechts, bündig mit dem rechten Rand der Seite (Hoch- oder Querformat). */
-const logoBox = () => ({ ...LOGO, x: PAGE.right - LOGO.w });
+const LOGO_SCALE = { S: 0.72, M: 1, L: 1.3 };
+const lookOf = (project) => project.look || cleanPageLook(null);
+/** Fläche des Logos: oben rechts bündig mit dem rechten Rand (oder links), Größe nach Einstellung. */
+const logoBox = (project, left = PAGE.left) => {
+  const look = lookOf(project);
+  const k = LOGO_SCALE[look.logoSize] || 1;
+  const w = LOGO.w * k;
+  const h = LOGO.h * k;
+  return { y: LOGO.y, w, h, x: look.logoPos === 'left' ? left : PAGE.right - w, left: look.logoPos === 'left' };
+};
 
 /** Datum (JJJJ-MM-TT) in der Schreibweise der Sprache. */
 export function formatDate(iso, lang) {
@@ -30,34 +38,48 @@ export function formatDate(iso, lang) {
   return `${m[3]}.${m[2]}.${m[1]}`;
 }
 
-/** Firmenlogo oben rechts (eingepasst, rechtsbündig) – ohne Logo der Firmenname als Schriftzug. */
-function logoSvg(project, ts) {
+/** Firmenlogo oben rechts bzw. links (eingepasst) – ohne Logo der Firmenname als Schriftzug. */
+function logoSvg(project, ts, left = PAGE.left) {
   const img = project.company.logo && project.images[project.company.logo];
-  const LOGO_BOX = logoBox();
+  const box = logoBox(project, left);
   if (img && img.data && img.w && img.h) {
-    const s = Math.min(LOGO_BOX.w / img.w, LOGO_BOX.h / img.h);
+    const s = Math.min(box.w / img.w, box.h / img.h);
     const w = img.w * s;
     const h = img.h * s;
-    return `<image href="${esc(img.data)}" x="${n(LOGO_BOX.x + LOGO_BOX.w - w)}" y="${n(LOGO_BOX.y + (LOGO_BOX.h - h) / 2)}" width="${n(w)}" height="${n(h)}" preserveAspectRatio="none"/>`;
+    const x = box.left ? box.x : box.x + box.w - w;
+    return `<image href="${esc(img.data)}" x="${n(x)}" y="${n(box.y + (box.h - h) / 2)}" width="${n(w)}" height="${n(h)}" preserveAspectRatio="none"/>`;
   }
   const name = project.company.name || '';
   if (!name) return '';
+  const x = box.left ? box.x : PAGE.right;
+  const anchor = box.left ? 'start' : 'end';
   return (
-    text(PAGE.right, 68, name, { size: 18, weight: 700, anchor: 'end' }) +
-    text(PAGE.right, 80, ts.inline(project.company.tagline), { size: 7, fill: C.muted, anchor: 'end' })
+    text(x, 68, name, { size: 18, weight: 700, anchor }) +
+    text(x, 80, ts.inline(project.company.tagline), { size: 7, fill: C.muted, anchor })
   );
 }
 
-/** Kopf einer Inhaltsseite: Titel, Untertitel, Logo, Linie. */
+/** Breite, die Logo bzw. Firmenschriftzug in der Kopfzeile wirklich einnehmen. */
+function logoWidth(project, ts, box) {
+  const img = project.company.logo && project.images[project.company.logo];
+  if (img && img.data && img.w && img.h) return img.w * Math.min(box.w / img.w, box.h / img.h);
+  const name = project.company.name || '';
+  if (!name) return 0;
+  return Math.max(ts.width(name, 18, 700), ts.width(ts.inline(project.company.tagline), 7));
+}
+
+/** Kopf einer Inhaltsseite: Titel, Untertitel, Logo, Linie (Logo links: Titel rechtsbündig). */
 function headerSvg(project, ts, title, subtitle) {
   // Titel und Untertitel enden vor dem Logo (zu lang: kleiner, notfalls gekürzt)
-  const room = logoBox().x - 12 - PAGE.left;
-  return (
-    logoSvg(project, ts) +
-    text(PAGE.left, 72, ...fit(ts, title, 20, 14, room, 700)) +
-    text(PAGE.left, 89, ...fit(ts, subtitle, 10.5, 8, room, 400, C.muted)) +
-    line(PAGE.left, 102, PAGE.right, 102, C.navy, 2.5)
-  );
+  const box = logoBox(project);
+  const left = box.left;
+  const used = left ? logoWidth(project, ts, box) : 0;
+  const room = left ? PAGE.right - PAGE.left - (used ? used + 18 : 0) : box.x - 12 - PAGE.left;
+  const x = left ? PAGE.right : PAGE.left;
+  const at = (v, o) => text(x, o.y, v, { ...o.f, anchor: left ? 'end' : 'start' });
+  const [t, tf] = fit(ts, title, 20, 14, room, 700);
+  const [u, uf] = fit(ts, subtitle, 10.5, 8, room, 400, C.muted);
+  return logoSvg(project, ts) + at(t, { y: 72, f: tf }) + at(u, { y: 89, f: uf }) + line(PAGE.left, 102, PAGE.right, 102, C.navy, 2.5);
 }
 
 /** Text auf `room` pt Breite bringen: Schriftgrad bis `min` verkleinern, danach mit „…“ kürzen. */
@@ -70,24 +92,47 @@ function fit(ts, value, size, min, room, weight = 400, fill = C.navy) {
   return [v, { size: s, weight, fill }];
 }
 
-/** Fußzeile: Firma links, Dokument und Seitenzahl rechts. */
+/** Fußzeile: Firma links, Dokument und Seitenzahl rechts, eigener Text in der Mitte (wie eingestellt). */
 function footerSvg(project, ts, label, num, total, cover = false) {
-  const company = [project.company.name, ts.inline(project.company.tagline)].filter(Boolean).join('  -  ');
-  const pageText = num ? ts.label('pageOf', { n: num, total }) : '';
+  const look = lookOf(project);
+  const on = look.footer;
+  const m = project.meta;
+  const en = ts.lang === 'en';
+  const company = [on.company && project.company.name, on.tagline && ts.inline(project.company.tagline)].filter(Boolean).join('  -  ');
+  const pageText = num && on.page ? ts.label('pageOf', { n: num, total }) : '';
+  const facts = [
+    on.docNo && m.docNo ? `${en ? 'Doc. no.' : 'Dok.-Nr.'} ${m.docNo}` : '',
+    on.version && m.version ? `${en ? 'Version' : 'Version'} ${m.version}` : '',
+    on.date && m.date ? formatDate(m.date, ts.lang) : '',
+  ].filter(Boolean);
+  const own = ts.inline(look.footerText);
   const room = PAGE.right - PAGE.left - 16;
-  const w = (v) => ts.width(v, 7.5);
-  // zu lang für eine Zeile: erst den Firmenzusatz, dann den Dokumenttitel weglassen
+  const size = cover ? 9 : 7.5;
+  const w = (v) => ts.width(v, size);
+  // zu lang für eine Zeile: erst den Firmenzusatz, dann den Dokumenttitel, dann die Angaben weglassen
   let left = company;
-  let right = [label, pageText].filter(Boolean).join('   -   ');
-  if (w(left) + w(right) > room) left = project.company.name || '';
-  if (w(left) + w(right) > room) right = pageText;
+  const rightOf = (withTitle, withFacts) => [withTitle && on.title ? label : '', ...(withFacts ? facts : []), pageText].filter(Boolean).join('   -   ');
+  let right = cover ? '' : rightOf(true, true);
+  if (w(left) + w(right) > room) left = on.company ? project.company.name || '' : '';
+  if (!cover && w(left) + w(right) > room) right = rightOf(false, true);
+  if (!cover && w(left) + w(right) > room) right = rightOf(false, false);
   const f = PAGE.foot;
-  if (cover) return line(COVER_LEFT, f, PAGE.right, f, C.rule, 0.8) + text(COVER_LEFT, f + 14, left, { size: 9, fill: C.body });
-  return (
-    line(PAGE.left, f, PAGE.right, f, C.rule, 0.7) +
-    text(PAGE.left, f + 12, left, { size: 7.5, fill: C.muted }) +
-    text(PAGE.right, f + 12, right, { size: 7.5, fill: C.muted, anchor: 'end' })
-  );
+  const L = cover ? COVER_LEFT : PAGE.left;
+  const y = f + (cover ? 14 : 12);
+  const style = cover ? { size, fill: C.body } : { size, fill: C.muted };
+  let s = line(L, f, PAGE.right, f, C.rule, cover ? 0.8 : 0.7) + text(L, y, left, style) + text(PAGE.right, y, right, { ...style, anchor: 'end' });
+  if (own) {
+    // eigener Text: in der Mitte, wenn er dort Platz hat – sonst in einer zweiten Zeile
+    const mid = (L + PAGE.right) / 2;
+    const half = w(own) / 2;
+    const free = mid - half > L + w(left) + 14 && mid + half < PAGE.right - w(right) - 14;
+    if (free) s += text(mid, y, own, { ...style, anchor: 'middle' });
+    else {
+      const [v, o] = fit(ts, own, size, 6, PAGE.right - L, 400, style.fill);
+      s += text(mid, y + (cover ? 13 : 10.5), v, { ...o, anchor: 'middle' });
+    }
+  }
+  return s;
 }
 
 function svgPage(ts, body, family = esc(ts.font.css), kerning = 'none') {
@@ -111,7 +156,7 @@ export const COVER_LEFT = 70.87;
 function coverBody(project, ts, start = 318) {
   const L = COVER_LEFT;
   const R = PAGE.right;
-  let s = logoSvg(project, ts);
+  let s = logoSvg(project, ts, COVER_LEFT);
   const hits = [];
   let y = start;
   const titles = ts.runs(project.title);
@@ -155,17 +200,16 @@ function coverBody(project, ts, start = 318) {
 /** Zeilen der Projektangaben: Kunde … Version, dann Ansprechpartner und Wachschutz (nur ausgefüllte). */
 function coverItems(project, ts) {
   const m = project.meta;
-  const items = [
-    ['customer', m.customer],
-    ['address', m.address],
-    ['site', m.site],
-    ['date', formatDate(m.date, ts.lang)],
-    ['technician', m.technician],
-    ['docNo', m.docNo],
-    ['version', m.version],
-  ]
-    .filter(([, v]) => v)
-    .map(([key, value]) => ({ label: ts.label(key), value }));
+  const extra = project.extra || {};
+  const fields = project.coverFields || COVER_FIELDS.map((key) => ({ key, show: true }));
+  const items = fields
+    .filter((f) => f.show !== false)
+    .map((f) => {
+      const value = f.custom ? extra[f.key] : f.key === 'date' ? formatDate(m.date, ts.lang) : m[f.key];
+      const own = f.title ? ts.inline(f.title) : '';
+      return { label: own || (f.custom ? '' : ts.label(f.key)), value: String(value || '').trim() };
+    })
+    .filter((it) => it.value);
   const tel = ts.lang === 'en' ? 'Phone' : 'Tel.';
   const contacts = (project.contacts || []).filter((c) => c.name || c.role || c.phone || c.email);
   if (contacts.length) {
@@ -280,7 +324,17 @@ function tocBody(ts, entries) {
  * Seiten eines Projekts. Zwei Durchgänge: erst die Seiten je Abschnitt (für die Seitenzahlen im
  * Inhaltsverzeichnis und im Hinweis „siehe Seite …“), dann Kopf- und Fußzeilen.
  */
-export function renderDocument(project, { skipEmpty = false, forPdf = false } = {}) {
+export function renderDocument(project, opts = {}) {
+  // Hausfarbe (Überschriften, Linien, Tabellenköpfe); die Bedienungsanleitung hat eigene Farben
+  const restore = project.design === 'manual' ? null : setHouseColor(lookOf(project).color);
+  try {
+    return setDocument(project, opts);
+  } finally {
+    if (restore) restore();
+  }
+}
+
+function setDocument(project, { skipEmpty = false, forPdf = false } = {}) {
   const ts = typesetter(project);
   const label = documentLabel(project, ts);
   const pages = [];

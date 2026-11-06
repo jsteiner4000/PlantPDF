@@ -176,7 +176,7 @@ test('Einstellungen › Vorgaben: eigene Leitungsart und Kennzeichen nur für ne
     // Zurücksetzen, dann die exportierte Datei importieren
     await page.evaluate(() => void window.pdfEditor.settings()); // nicht auf das Schließen warten
     await page.locator('#setWiring').click();
-    await dlg.locator('button', { hasText: 'Auf Standard zurücksetzen' }).click();
+    await dlg.locator('button', { hasText: 'zurücksetzen' }).click();
     await page.locator('.dlg .btn.primary', { hasText: 'Zurücksetzen' }).click();
     const names = () => dlg.locator('.sd-wcat:not(.sd-wmark) .sd-cat input.fld').evaluateAll((els) => els.map((e) => e.value));
     await expect.poll(names).not.toContain('Brandmelder-Ring');

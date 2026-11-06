@@ -72,6 +72,7 @@ export const STRINGS = {
   technician: T('Techniker', 'Technician'),
   docNo: T('Dokument-Nr.', 'Document no.'),
   version: T('Version', 'Version'),
+  checked: T('Geprüft von', 'Checked by'),
   contacts: T('Ansprechpartner', 'Contacts'),
   guard: T('Wachschutz', 'Security service'),
   guardCompany: T('Firma', 'Company'),
@@ -297,6 +298,11 @@ const cleanShow = (v) => {
  * ab, die direkt geöffnet werden.
  */
 export function upgradeProject(project) {
+  // Deckblatt-Felder, Kopf- und Fußzeile (ältere Dokumente: wie bisher)
+  if (!Array.isArray(project.coverFields)) project.coverFields = cleanCoverFields(project.coverFields);
+  if (!project.extra || typeof project.extra !== 'object') project.extra = {};
+  if (!project.look || typeof project.look !== 'object') project.look = cleanPageLook(project.look);
+  if (project.meta && typeof project.meta.checked !== 'string') project.meta.checked = '';
   for (const s of project.sections || []) {
     if (s.type !== 'wiring') continue;
     for (const c of s.categories || []) {
@@ -1174,6 +1180,88 @@ export function withoutSecrets(project, show = null) {
   return copy;
 }
 
+/* ---------- Deckblatt-Felder, Kopf- und Fußzeile ---------- */
+
+/** Felder des Deckblatts (Werte in `project.meta`), in der Reihenfolge eines neuen Dokuments. */
+export const COVER_FIELDS = ['customer', 'address', 'site', 'date', 'technician', 'checked', 'docNo', 'version'];
+/** Höchstzahl eigener Felder (Deckblatt bleibt lesbar). */
+export const MAX_CUSTOM_FIELDS = 8;
+
+export const defaultCoverFields = () => COVER_FIELDS.map((key) => ({ key, show: true, title: T('', '') }));
+export const newCoverField = () => ({ key: uid('x'), show: true, title: T('Neues Feld', 'New field'), custom: true });
+
+const FIELD_KEY_RE = /^x[A-Za-z0-9_-]{1,40}$/;
+
+/** Deckblatt-Felder prüfen: bekannte in gewählter Reihenfolge, eigene (höchstens 8), fehlende hinten an. */
+export function cleanCoverFields(list) {
+  if (!Array.isArray(list)) return defaultCoverFields();
+  const seen = new Set();
+  const out = [];
+  let custom = 0;
+  for (const f of list) {
+    if (!f || typeof f !== 'object' || seen.has(f.key)) continue;
+    const isCustom = FIELD_KEY_RE.test(f.key || '');
+    if (!isCustom && !COVER_FIELDS.includes(f.key)) continue;
+    if (isCustom && ++custom > MAX_CUSTOM_FIELDS) continue;
+    seen.add(f.key);
+    const title = f.title && typeof f.title === 'object' ? T(str_(f.title.de, 60), str_(f.title.en, 60)) : T('', '');
+    out.push(isCustom ? { key: f.key, show: f.show !== false, title, custom: true } : { key: f.key, show: f.show !== false, title });
+  }
+  for (const key of COVER_FIELDS) if (!seen.has(key)) out.push({ key, show: true, title: T('', '') });
+  return out;
+}
+
+/** Hausfarbe eines neuen Dokuments (das Dunkelblau des Vorbilds). */
+export const HOUSE_COLOR = '#1f3b4d';
+export const LOGO_SIZES = [
+  ['S', 'Klein'],
+  ['M', 'Mittel'],
+  ['L', 'Groß'],
+];
+/** Bausteine der Fußzeile: links die Firma, rechts das Dokument. */
+export const FOOTER_PARTS = [
+  ['company', 'Firmenname', 'left'],
+  ['tagline', 'Zusatz der Firma', 'left'],
+  ['title', 'Dokumenttitel', 'right'],
+  ['docNo', 'Dokument-Nr.', 'right'],
+  ['version', 'Version', 'right'],
+  ['date', 'Datum', 'right'],
+  ['page', 'Seitenzahl („Seite 2 von 9“)', 'right'],
+];
+
+export const defaultLook = () => ({
+  color: HOUSE_COLOR,
+  logoSize: 'M',
+  logoPos: 'right',
+  footer: { company: true, tagline: true, title: true, docNo: false, version: false, date: false, page: true },
+  footerText: T('', ''),
+});
+
+/** Kopf- und Fußzeile prüfen (fehlt etwas: wie bisher). */
+export function cleanPageLook(raw) {
+  const d = defaultLook();
+  if (!raw || typeof raw !== 'object') return d;
+  const footer = raw.footer && typeof raw.footer === 'object' ? raw.footer : {};
+  return {
+    color: /^#[0-9a-f]{6}$/i.test(raw.color || '') ? raw.color.toLowerCase() : d.color,
+    logoSize: oneOf(raw.logoSize, ['S', 'M', 'L'], 'M'),
+    logoPos: oneOf(raw.logoPos, ['left', 'right'], 'right'),
+    footer: Object.fromEntries(FOOTER_PARTS.map(([k]) => [k, typeof footer[k] === 'boolean' ? footer[k] : d.footer[k]])),
+    footerText: raw.footerText && typeof raw.footerText === 'object' ? T(str_(raw.footerText.de, 160), str_(raw.footerText.en, 160)) : T('', ''),
+  };
+}
+
+/** Dokumentnummer aus dem Schema: {JJJJ} {JJ} {MM} {TT} und {NR} (laufende Nummer mit `digits` Stellen). */
+export function formatDocNo(pattern, nr, digits = 3, date = new Date()) {
+  const pad = (v, k) => String(v).padStart(k, '0');
+  return String(pattern || '')
+    .replace(/\{JJJJ\}/g, String(date.getFullYear()))
+    .replace(/\{JJ\}/g, pad(date.getFullYear() % 100, 2))
+    .replace(/\{MM\}/g, pad(date.getMonth() + 1, 2))
+    .replace(/\{TT\}/g, pad(date.getDate(), 2))
+    .replace(/\{NR\}/g, pad(Math.max(0, Math.round(nr) || 0), Math.max(1, Math.min(8, Math.round(digits) || 1))));
+}
+
 /* ---------- Projekt ---------- */
 
 /** Vorlagen für neue Projekte. */
@@ -1252,9 +1340,15 @@ export function newProject(templateId = 'documentation', opts = {}) {
       site: '',
       date: new Date().toISOString().slice(0, 10),
       technician: '',
+      checked: '',
       docNo: '',
       version: '1.0',
     },
+    /** Felder des Deckblatts: Reihenfolge, ein/aus, eigene Überschrift, eigene Felder (Werte in `extra`). */
+    coverFields: defaultCoverFields(),
+    extra: {},
+    /** Kopf- und Fußzeile: Hausfarbe, Logo, Inhalt der Fußzeile. */
+    look: defaultLook(),
     /** Ansprechpartner des Kunden: [{ id, name, role, phone, email }] */
     contacts: [],
     /** Wachschutz: Firma, Notruf, Kunden-/Objektnummer, Leitstelle/Aufschaltung */
@@ -1319,6 +1413,9 @@ export function normalizeProject(raw) {
       logo: hasImg(images, company.logo) ? company.logo : null,
     },
     meta: Object.fromEntries(Object.keys(base.meta).map((k) => [k, str_(meta[k], 1000)])),
+    coverFields: cleanCoverFields(raw.coverFields),
+    extra: {},
+    look: cleanPageLook(raw.look),
     contacts: (Array.isArray(raw.contacts) ? raw.contacts : [])
       .filter((c) => c && typeof c === 'object')
       .slice(0, 50)
@@ -1343,6 +1440,9 @@ export function normalizeProject(raw) {
     // Seitenformat je Abschnitt (Deckblatt und Inhalt immer hoch)
     if (s.landscape === true && s.type !== 'cover' && s.type !== 'toc') project.sections.at(-1).landscape = true;
   }
+  // Werte eigener Deckblatt-Felder: nur zu Feldern, die es gibt
+  const extra = raw.extra && typeof raw.extra === 'object' ? raw.extra : {};
+  for (const f of project.coverFields) if (f.custom && typeof extra[f.key] === 'string') project.extra[f.key] = str_(extra[f.key], 1000);
   project.overlays = cleanOverlays(raw.overlays, project.sections, images, id);
   // Fotoverknüpfungen nur auf Symbole, die es gibt
   const symbolIds = new Set(project.sections.flatMap((s) => (s.type === 'site' ? s.symbols.map((y) => y.id) : [])));

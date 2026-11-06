@@ -44,8 +44,11 @@ import {
   newMarking,
   loadWiringPresets,
   mergeWiringPresets,
+  defaultCoverFields,
+  cleanPageLook,
 } from './model.js';
 import { categoriesEditor, columnsEditor, ensureWireLists, marksEditor, showEditor } from './wiring-catalog.js';
+import { fieldLabel, lookEditor } from './doc-catalog.js';
 import { thumbOf } from './thumbs.js';
 import { QR_CAPTION_H, serialSources } from './overlays.js';
 import { chapterLabels, referenceTargets } from './chapters.js';
@@ -87,10 +90,10 @@ export class Inspector {
   /** Erstes Eingabefeld fokussieren (nach dem Anlegen, Doppelklick im Plan). */
   focusFirst() {
     const el = this.body.querySelector('input:not([type=checkbox]):not([type=color]), textarea');
-    if (el) {
-      el.focus();
-      if (el.select) el.select();
-    }
+    if (!el) return false;
+    el.focus();
+    if (el.select) el.select();
+    return true;
   }
 
   render() {
@@ -354,20 +357,12 @@ export class Inspector {
       this.bi('Zusatz', p.company, 'tagline', { placeholder: 'z. B. Fachgebiet oder Abteilung' }),
     );
     if (!manual) {
-      const m = p.meta;
+      this.coverFieldsGroup(p);
       const two = (a, b) => {
         const el = htmlToElement('<div class="sd-two"></div>');
         el.append(a, b);
         return el;
       };
-      this.group(
-        'Projekt',
-        this.text('Kunde', m, 'customer'),
-        this.text('Anschrift', m, 'address', { multiline: true }),
-        this.text('Anlage', m, 'site', { placeholder: 'z. B. Einbruchmeldeanlage Halle 2' }),
-        two(this.text('Datum', m, 'date', { type: 'date' }), this.text('Version', m, 'version')),
-        two(this.text('Techniker', m, 'technician'), this.text('Dokument-Nr.', m, 'docNo')),
-      );
       this.contactsGroup(p);
       p.guard ||= newGuard();
       const g = p.guard;
@@ -378,11 +373,57 @@ export class Inspector {
         this.text('Leitstelle / Aufschaltung', g, 'center', { id: 'gce', placeholder: 'z. B. NSL Musterstadt, IP + GSM' }),
         this.note('Erscheint auf dem Deckblatt, sobald etwas eingetragen ist.'),
       );
+      this.lookGroupForm(p);
     }
     // Eigene Vorlage: erscheint auf der Startseite unter „Neue Dokumentation“
     const save = htmlToElement(`<button type="button" class="btn outline sd-wide" data-a="tpl">${icon('binder', 's')}Als Vorlage speichern …</button>`);
     save.addEventListener('click', () => studio.saveAsTemplate());
     this.group('Vorlage', save, htmlToElement('<p class="sd-hint">Für weitere Kunden oder Projekte: neue Dokumentationen starten dann mit diesem Stand.</p>'));
+  }
+
+  /** Projektangaben in der Reihenfolge der Deckblatt-Felder (ausgeblendete fehlen); „Felder anpassen“. */
+  coverFieldsGroup(p) {
+    const studio = this.studio;
+    const m = p.meta;
+    p.extra ||= {};
+    const fields = (p.coverFields ||= defaultCoverFields()).filter((f) => f.show);
+    const SHORT = new Set(['date', 'version', 'technician', 'checked', 'docNo']);
+    const PLACEHOLDER = { site: 'z. B. Einbruchmeldeanlage Halle 2' };
+    const controls = fields.map((f) => {
+      const label = fieldLabel(f);
+      const short = f.custom || SHORT.has(f.key);
+      const el = f.custom
+        ? this.text(label, p.extra, f.key, { id: 'cf' + f.key })
+        : this.text(label, m, f.key, { multiline: f.key === 'address', type: f.key === 'date' ? 'date' : 'text', placeholder: PLACEHOLDER[f.key] || '' });
+      return { el, short };
+    });
+    const group = this.group('Projekt');
+    // kurze Felder paarweise nebeneinander
+    for (let i = 0; i < controls.length; i++) {
+      const a = controls[i];
+      const b = controls[i + 1];
+      if (a.short && b && b.short) {
+        const two = htmlToElement('<div class="sd-two"></div>');
+        two.append(a.el, b.el);
+        group.appendChild(two);
+        i++;
+      } else group.appendChild(a.el);
+    }
+    if (!fields.length) group.appendChild(this.note('Alle Felder sind ausgeblendet.'));
+    const edit = htmlToElement(`<button type="button" class="btn sd-link" data-a="coverfields">${icon('list', 's')}Felder anpassen …</button>`);
+    edit.addEventListener('click', () => studio.editCoverFields());
+    group.appendChild(edit);
+  }
+
+  /** Kopf- und Fußzeile des Dokuments (Hausfarbe, Logo, Fußzeile). */
+  lookGroupForm(p) {
+    const studio = this.studio;
+    p.look ||= cleanPageLook(null);
+    const ctx = {
+      langs: langsOf(p),
+      commit: (label, fn, o = {}) => studio.change(label, fn, { key: o.key || null, inspector: !!o.rebuild }),
+    };
+    this.group('Kopf- und Fußzeile', lookEditor(p.look, ctx));
   }
 
   /** Ansprechpartner des Kunden: je Person Name, Funktion, Telefon, E-Mail; „+“ fügt hinzu. */
@@ -410,7 +451,9 @@ export class Inspector {
     add.addEventListener('click', () => {
       const c = newContact();
       studio.change('Ansprechpartner hinzugefügt', () => p.contacts.push(c), { inspector: true });
-      setTimeout(() => document.querySelector(`[data-f^="t:cn${c.id}:"]`)?.focus(), 0);
+      const field = () => document.querySelector(`[data-f^="t:cn${c.id}:"]`);
+      if (field()) field().focus();
+      else setTimeout(() => field()?.focus(), 0);
     });
     group.appendChild(add);
   }

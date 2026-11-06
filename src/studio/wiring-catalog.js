@@ -43,7 +43,7 @@ const COLUMN_HINT = {
 };
 
 const safeColor = (v, fallback = '#5b6b7a') => (/^#[0-9a-f]{3}([0-9a-f]{3})?$/i.test(String(v || '')) ? v : fallback);
-const asT = (obj, prop) => {
+export const asT = (obj, prop) => {
   if (typeof obj[prop] !== 'object' || obj[prop] == null) obj[prop] = T(obj[prop] || '', '');
   return obj[prop];
 };
@@ -51,13 +51,13 @@ const asT = (obj, prop) => {
 /** Aufgeklappte Leitungsarten (bleibt beim Neuaufbau). */
 const open = new Set();
 
-function field(label, ...controls) {
+export function field(label, ...controls) {
   const el = htmlToElement(`<label class="sd-f"><span class="sd-l">${escapeHtml(label)}</span></label>`);
   el.append(...controls);
   return el;
 }
 
-function input(value, onInput, { placeholder = '', list = '', mono = false, maxlength = 0 } = {}) {
+export function input(value, onInput, { placeholder = '', list = '', mono = false, maxlength = 0 } = {}) {
   const el = document.createElement('input');
   el.type = 'text';
   el.className = 'fld' + (mono ? ' mono' : '');
@@ -75,7 +75,7 @@ function input(value, onInput, { placeholder = '', list = '', mono = false, maxl
 }
 
 /** Zweisprachiges Feld (je Sprache eine Eingabe). */
-function biInputs(ctx, obj, prop, key, label, placeholder = '') {
+export function biInputs(ctx, obj, prop, key, label, placeholder = '') {
   const value = asT(obj, prop);
   return ctx.langs.map((lang) => {
     const el = input(value[lang], (v) => ctx.commit(label, () => (asT(obj, prop)[lang] = v), { key: `${key}:${lang}` }), {
@@ -88,7 +88,7 @@ function biInputs(ctx, obj, prop, key, label, placeholder = '') {
   });
 }
 
-function seg(options, current, onPick) {
+export function seg(options, current, onPick) {
   const el = htmlToElement('<div class="sd-seg" role="radiogroup"></div>');
   for (const [value, text] of options) {
     const b = htmlToElement(`<button type="button" role="radio" aria-checked="${value === current}" class="${value === current ? 'on' : ''}">${escapeHtml(text)}</button>`);
@@ -98,13 +98,13 @@ function seg(options, current, onPick) {
   return el;
 }
 
-function colorInput(value, onInput, title = 'Farbe') {
+export function colorInput(value, onInput, title = 'Farbe') {
   const el = htmlToElement(`<input type="color" class="sd-color" value="${safeColor(value)}" title="${escapeHtml(title)}">`);
   el.addEventListener('input', () => onInput(el.value));
   return el;
 }
 
-function iconButton(name, title, run, disabled = false) {
+export function iconButton(name, title, run, disabled = false) {
   const b = htmlToElement(`<button type="button" class="btn ic" title="${escapeHtml(title)}">${icon(name, 's')}</button>`);
   b.disabled = disabled;
   b.addEventListener('click', run);

@@ -1739,3 +1739,76 @@ textarea.fld.mono {
   width: 100%;
   min-width: 0;
 }
+/* Vorgaben: Reiter */
+.dlg:has(.pre-shell) {
+  width: min(640px, 94vw);
+  overflow: hidden;
+}
+.pre-shell .pre-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.pre-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pre-tab:hover {
+  background: var(--hover, rgba(127, 127, 127, 0.1));
+}
+.pre-tab.on {
+  border-color: var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+.pre-tab:focus-visible {
+  outline: 2px solid var(--acc);
+  outline-offset: 1px;
+}
+/* Deckblatt-Felder: eigene Felder mit Entfernen */
+.sd-cfield.custom {
+  grid-template-columns: 22px 1fr 30px 30px 30px;
+}
+.sd-cfield-en {
+  margin: -2px 0 2px 28px;
+}
+.sd-cfield-en .sd-bi,
+.sd-cfield-en .fld {
+  width: 100%;
+}
+.sd-look .sd-f {
+  margin-top: 10px;
+}
+.sd-footparts {
+  display: grid;
+  gap: 2px;
+}
+.sd-tokens {
+  margin: 6px 0 2px;
+}
+.sd-docno-pre {
+  font-variant-numeric: tabular-nums;
+}
+.sd-company .sd-link {
+  margin-top: 4px;
+}
+.set-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

@@ -51,6 +51,7 @@ import {
   tx,
   uid,
   upgradeProject,
+  langsOf,
 } from './model.js';
 import { documentLabel, renderDocument } from './render.js';
 import { LANDSCAPE, PAGE, PORTRAIT, isLandscape, typesetter } from './svg.js';
@@ -80,6 +81,8 @@ import { ensureBarlow } from './fonts.js';
 import { TooLargeError, assertPrintable, canMakePdf, embedProject, hasProject, makePdf, printHtml, readProject } from './export.js';
 import { PDFDocument } from 'pdf-lib';
 import { Inspector } from './inspector.js';
+import { coverFieldsEditor } from './doc-catalog.js';
+import { applyDocPresets, rememberCompany as rememberCompanyPreset, takeDocNo } from './presets.js';
 import { symbolIconSvg } from './site.js';
 import { hitsShape, siteTools, toolOf } from './site-tools.js';
 import { manualEdit } from './manual-edit.js';
@@ -267,8 +270,7 @@ export class Studio {
       parts = await this.chooseParts();
       if (!parts) return;
     }
-    const project = templateProject(templateId, parts);
-    applyCompany(project);
+    const project = applyDocPresets(templateProject(templateId, parts));
     await this.open(project);
   }
 
@@ -311,6 +313,29 @@ export class Studio {
     return parts;
   }
 
+  /** Felder des Deckblatts für dieses Dokument anpassen (ein/aus, Reihenfolge, Name, eigene Felder). */
+  async editCoverFields() {
+    const p = this.project;
+    if (!p) return;
+    const body = htmlToElement('<div class="pre-dlg sd-ibody sd-cf-dlg"></div>');
+    const render = () => {
+      body.innerHTML = '';
+      body.appendChild(htmlToElement('<p class="sd-note">Gilt für dieses Dokument. Für neue Dokumente: Einstellungen › Vorgaben für Dokumentationen › Deckblatt.</p>'));
+      body.appendChild(
+        coverFieldsEditor(p, {
+          langs: langsOf(p),
+          commit: (label, fn, o = {}) => {
+            this.change(label, fn, { key: o.key || null, inspector: true });
+            if (o.rebuild) render();
+          },
+          onRemoveField: (key) => delete p.extra[key],
+        }),
+      );
+    };
+    render();
+    await showDialog({ title: 'Felder des Deckblatts', icon: 'list', body, buttons: [{ label: 'Fertig', primary: true, value: true }] });
+  }
+
   /** Neue Dokumentation aus einer eigenen Vorlage (eigene Kennung, Datum von heute). */
   async createFromTemplate(id) {
     try {
@@ -320,6 +345,9 @@ export class Studio {
       project.id = uid('prj');
       project.created = project.modified = Date.now();
       project.meta.date = new Date().toISOString().slice(0, 10);
+      // eigene Vorlage: Firma, Felder und Gestaltung stehen darin; nur die Dokumentnummer zählt weiter
+      const no = takeDocNo();
+      if (no) project.meta.docNo = no;
       await this.open(project);
     } catch {
       toast('Die Vorlage konnte nicht geöffnet werden.', 'err', 5000);
@@ -2823,30 +2851,10 @@ export async function readImage(file, { max = 1600, jpeg = false } = {}) {
 }
 /* ---------- Firma für neue Projekte merken ---------- */
 
-const COMPANY_KEY = 'pdfix.studio.company';
-
 /** Firmenname, Zusatz und Logo des zuletzt bearbeiteten Projekts für neue Projekte merken. */
 function rememberCompany(project) {
-  try {
-    const { name, tagline, logo } = project.company;
-    const image = logo && project.images[logo];
-    const value = JSON.stringify({ name, tagline, logo: image || null });
-    if (localStorage.getItem(COMPANY_KEY) !== value) localStorage.setItem(COMPANY_KEY, value);
-  } catch {}
-}
-
-function applyCompany(project) {
-  try {
-    const saved = JSON.parse(localStorage.getItem(COMPANY_KEY) || 'null');
-    if (!saved) return;
-    if (typeof saved.name === 'string') project.company.name = saved.name;
-    if (saved.tagline && typeof saved.tagline === 'object') project.company.tagline = saved.tagline;
-    if (saved.logo && typeof saved.logo.data === 'string' && /^data:image\/(png|jpeg|webp|svg\+xml);base64,/.test(saved.logo.data)) {
-      const id = uid('img');
-      project.images[id] = saved.logo;
-      project.company.logo = id;
-    }
-  } catch {}
+  const { name, tagline, logo } = project.company;
+  rememberCompanyPreset({ name, tagline, logo: (logo && project.images[logo]) || null });
 }
 
 Object.assign(Studio.prototype, siteTools, manualEdit, overlayEdit);

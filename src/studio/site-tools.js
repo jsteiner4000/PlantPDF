@@ -291,7 +291,9 @@ export const siteTools = {
     this.change(closed ? 'Zone gezeichnet' : 'Zaun gezeichnet', () => s.shapes.push(z));
     this.disarm();
     this.select({ kind: 'shape', id: z.id, section: s.id });
-    if (closed) setTimeout(() => this.inspector.focusFirst(), 0);
+    // Name gleich eintippen: sofort fokussieren (später nur, falls das Feld noch fehlte –
+    // sonst würde schon Getipptes wieder markiert und überschrieben)
+    if (closed && !this.inspector.focusFirst()) setTimeout(() => this.inspector.focusFirst(), 0);
   },
 
   /** Richtfunkstrecke anlegen bzw. Gegenstelle ergänzen – neue Antennen in einem Schritt mit. */

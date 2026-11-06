@@ -35,6 +35,31 @@ export const C = {
   dot: '#2e6e8e',
 };
 
+/** Kontrast einer Farbe (#rrggbb) auf Weiß nach WCAG. */
+export function contrastOnWhite(hex) {
+  const v = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 1.05 / (0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2] + 0.05);
+}
+
+/**
+ * Hausfarbe als Schrift- und Linienfarbe: zu helle Farben werden abgedunkelt, bis Text darauf bzw.
+ * darin gut lesbar ist (mindestens 4,5 : 1 – weiße Schrift auf Tabellenköpfen, farbige Überschriften).
+ */
+export function inkColor(hex) {
+  if (!/^#[0-9a-f]{6}$/i.test(hex || '')) return '#1f3b4d';
+  let [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const out = () => '#' + [r, g, b].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
+  for (let k = 0; k < 40 && contrastOnWhite(out()) < 4.5; k++) [r, g, b] = [r * 0.92, g * 0.92, b * 0.92];
+  return out();
+}
+
+/** Hausfarbe für das Setzen eines Dokuments einstellen; liefert die Funktion, die zurückstellt. */
+export function setHouseColor(hex) {
+  const before = C.navy;
+  C.navy = inkColor(hex);
+  return () => (C.navy = before);
+}
+
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
 export const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ESC[c]);
 
