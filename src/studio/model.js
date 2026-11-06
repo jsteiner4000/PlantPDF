@@ -304,6 +304,10 @@ export function upgradeProject(project) {
   if (!project.look || typeof project.look !== 'object') project.look = cleanPageLook(project.look);
   if (project.meta && typeof project.meta.checked !== 'string') project.meta.checked = '';
   for (const s of project.sections || []) {
+    if (s.type === 'access' && !s.cols) {
+      s.cols = cleanAccessCols(null, { hardware: ['location'], ...(s.hide || {}) });
+      delete s.hide;
+    }
     if (s.type !== 'wiring') continue;
     for (const c of s.categories || []) {
       c.style ||= 'solid';
@@ -1117,15 +1121,16 @@ export const ACCESS_BLOCKS = [
   },
 ];
 
-/** Neue Zugangsdaten: alle Bereiche außer „Netzwerk“ eingeschaltet, Passwörter ausgeblendet. */
-export function newAccess() {
+/** Neue Zugangsdaten nach den Vorgaben (sonst: alle Bereiche außer „Netzwerk“, Passwörter ausgeblendet). */
+export function newAccess(presets = loadAccessPresets()) {
   return {
     id: uid('s'),
     type: 'access',
     title: T('Zugangsdaten', 'Access data'),
-    showPasswords: false,
-    blocks: { devices: true, hardware: true, network: false, wifi: true, remote: true },
-    hide: { devices: [], hardware: ['location'], wifi: [], remote: [] },
+    showPasswords: presets.showPasswords,
+    blocks: { ...presets.blocks },
+    /** Spalten je Tabelle: Reihenfolge, ein/aus, eigene Überschrift (leere Spalten entfallen ohnehin). */
+    cols: JSON.parse(JSON.stringify(presets.cols)),
     devices: [],
     network: { subnet: '', gateway: '', dns: '', dhcp: '', vlan: '', note: T('', '') },
     wifi: [],
@@ -1157,8 +1162,105 @@ export const newWifi = () => ({ id: uid('w'), link: null, ssid: '', key: '', sec
 
 export const newUser = () => ({ id: uid('n'), user: '', password: '', role: '' });
 
-/** Rollen zur Auswahl (frei änderbar). */
-export const ROLES = ['Administrator', 'Bediener', 'Nur ansehen', 'Wartung'];
+/** Rollen zur Auswahl (frei änderbar; eigene Liste in den Vorgaben). */
+export const ROLES = ['Administrator', 'Errichter', 'Bediener', 'Nur ansehen', 'Wartung'];
+/** Verschlüsselung eines WLANs (Auswahl). */
+export const WIFI_SECURITY = ['WPA2', 'WPA3', 'WPA2/WPA3', 'WPA', 'WEP', 'Offen'];
+/** Dienste für den Fernzugriff (Vorschläge, frei eingebbar). */
+export const REMOTE_SERVICES = ['DDNS', 'Portfreigabe', 'VPN', 'Hersteller-Cloud', 'Hik-Connect', 'DMSS (Dahua)', 'TeamViewer', 'AnyDesk', 'Fernwartung', 'Weboberfläche'];
+
+/** Tabellen der Zugangsdaten (Bereiche mit Spalten). */
+export const ACCESS_TABLES = () => ACCESS_BLOCKS.filter((b) => b.columns);
+
+/** Spalten je Tabelle; `hide` (ältere Dokumente): ausgeblendete Spalten. */
+export const defaultAccessCols = (hide = { hardware: ['location'] }) =>
+  Object.fromEntries(
+    ACCESS_TABLES().map((b) => {
+      const hidden = Array.isArray(hide[b.id]) ? hide[b.id] : [];
+      return [b.id, b.columns.map((c) => ({ key: c.key, show: !!c.fixed || !hidden.includes(c.key), title: T('', '') }))];
+    }),
+  );
+
+/** Spalten prüfen: bekannte in gewählter Reihenfolge, fehlende hinten an, feste immer sichtbar. */
+export function cleanAccessCols(raw, hide) {
+  const d = defaultAccessCols(hide && typeof hide === 'object' ? hide : undefined);
+  if (!raw || typeof raw !== 'object') return d;
+  const out = {};
+  for (const b of ACCESS_TABLES()) {
+    const known = new Map(b.columns.map((c) => [c.key, c]));
+    const list = [];
+    for (const c of Array.isArray(raw[b.id]) ? raw[b.id] : []) {
+      if (!c || typeof c !== 'object' || !known.has(c.key) || list.some((x) => x.key === c.key)) continue;
+      const title = c.title && typeof c.title === 'object' ? T(str_(c.title.de, 40), str_(c.title.en, 40)) : T('', '');
+      list.push({ key: c.key, show: !!known.get(c.key).fixed || c.show !== false, title });
+    }
+    for (const c of d[b.id]) if (!list.some((x) => x.key === c.key)) list.push(c);
+    out[b.id] = list;
+  }
+  return out;
+}
+
+/** Überschrift einer Spalte der Zugangsdaten (eigene, sonst die vorgegebene). */
+export function accessColLabel(def, conf) {
+  const own = conf && conf.title;
+  if (!own || !(own.de || own.en)) return def.label;
+  return T(own.de || def.label.de, own.en || def.label.en);
+}
+
+/** Vorgaben für neue Zugangsdaten (Einstellungen › Vorgaben), wenn nichts eingestellt ist. */
+export const defaultAccessPresets = () => ({
+  blocks: { devices: true, hardware: true, network: false, wifi: true, remote: true },
+  cols: defaultAccessCols(),
+  showPasswords: false,
+  roles: [...ROLES],
+  security: [...WIFI_SECURITY],
+  services: [...REMOTE_SERVICES],
+});
+
+const ACCESS_PRESETS_KEY = 'pdfix.presets.access';
+
+/** Auswahlliste prüfen: Texte, ohne Doppelte und Leere, höchstens 40. */
+const cleanList = (v, fallback) =>
+  Array.isArray(v)
+    ? [...new Set(v.filter((x) => typeof x === 'string').map((x) => x.trim().slice(0, 60)).filter(Boolean))].slice(0, 40)
+    : [...fallback];
+
+export function cleanAccessPresets(raw) {
+  const d = defaultAccessPresets();
+  const r = raw && typeof raw === 'object' ? raw : {};
+  const blocks = r.blocks && typeof r.blocks === 'object' ? r.blocks : {};
+  return {
+    blocks: Object.fromEntries(Object.keys(d.blocks).map((k) => [k, typeof blocks[k] === 'boolean' ? blocks[k] : d.blocks[k]])),
+    cols: cleanAccessCols(r.cols),
+    showPasswords: r.showPasswords === true,
+    roles: cleanList(r.roles, d.roles),
+    security: cleanList(r.security, d.security),
+    services: cleanList(r.services, d.services),
+  };
+}
+
+export function loadAccessPresets() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ACCESS_PRESETS_KEY) || 'null');
+    if (raw) return cleanAccessPresets(raw);
+  } catch {}
+  return defaultAccessPresets();
+}
+
+export function saveAccessPresets(presets) {
+  try {
+    localStorage.setItem(ACCESS_PRESETS_KEY, JSON.stringify(cleanAccessPresets(presets)));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function resetAccessPresets() {
+  try {
+    localStorage.removeItem(ACCESS_PRESETS_KEY);
+  } catch {}
+}
 
 export const newRemote = () => ({ id: uid('r'), service: '', address: '', user: '', password: '', note: T('', '') });
 
@@ -1789,7 +1891,7 @@ function cleanPhotos(s, id, images) {
 }
 
 function cleanAccess(s, id) {
-  const d = newAccess();
+  const d = newAccess(defaultAccessPresets());
   const blocks = s.blocks && typeof s.blocks === 'object' ? s.blocks : {};
   const hide = s.hide && typeof s.hide === 'object' ? s.hide : {};
   const network = s.network && typeof s.network === 'object' ? s.network : {};
@@ -1815,9 +1917,8 @@ function cleanAccess(s, id) {
     title: toT(s.title || d.title),
     showPasswords: bool(s.showPasswords),
     blocks: Object.fromEntries(Object.keys(d.blocks).map((k) => [k, k in blocks ? bool(blocks[k]) : d.blocks[k]])),
-    hide: Object.fromEntries(
-      Object.keys(d.hide).map((k) => [k, Array.isArray(hide[k]) ? hide[k].filter((x) => typeof x === 'string').slice(0, 20) : d.hide[k]]),
-    ),
+    // Spalten; ältere Dokumente: aus den ausgeblendeten Spalten (`hide`)
+    cols: cleanAccessCols(s.cols, s.cols ? null : { hardware: ['location'], ...hide }),
     devices: list(s.devices, newDevice, 'd'),
     network: Object.fromEntries(Object.entries(d.network).map(([k, v]) => [k, typeof v === 'object' ? toT(network[k]) : str_(network[k], 200)])),
     wifi: list(s.wifi, newWifi, 'w'),

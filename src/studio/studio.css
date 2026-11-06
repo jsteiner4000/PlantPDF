@@ -1812,3 +1812,17 @@ textarea.fld.mono {
   flex-wrap: wrap;
   gap: 8px;
 }
+.sd-acctables > .sd-l {
+  display: block;
+  margin: 10px 0 6px;
+  font-weight: 600;
+}
+.sd-acctables > .sd-l:first-child {
+  margin-top: 0;
+}
+.sd-list {
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+  line-height: 1.45;
+}

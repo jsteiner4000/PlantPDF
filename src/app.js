@@ -1081,8 +1081,8 @@ export class App {
   <div class="set-h">Speichern</div>
   <label class="ck"><input type="checkbox" id="setStrip"${this.stripActive ? ' checked' : ''}><span>Aktive Inhalte beim Speichern entfernen<small>Skripte, Programmstarts und Anhänge gelangen so nicht in weitergegebene Dateien.</small></span></label>
   <div class="set-h">Vorgaben für Dokumentationen</div>
-  <p class="set-note">Was neue Dokumentationen mitbringen – Firma und Logo, Deckblatt-Felder, Dokumentnummer, Fußzeile und Hausfarbe, Leitungsarten und Kennzeichen (z. B. 360 V).</p>
-  <div class="set-btns"><button type="button" class="btn outline" id="setCover" data-tab="cover">${icon('fitp', 's')}Deckblatt …</button><button type="button" class="btn outline" id="setLook" data-tab="look">${icon('file', 's')}Kopf- und Fußzeile …</button><button type="button" class="btn outline" id="setWiring" data-tab="wiring">${icon('wiring', 's')}Anschlussplan …</button></div>
+  <p class="set-note">Was neue Dokumentationen mitbringen – Firma und Logo, Deckblatt-Felder, Dokumentnummer, Fußzeile und Hausfarbe, Leitungsarten und Kennzeichen (z. B. 360 V), Spalten und Auswahllisten der Zugangsdaten.</p>
+  <div class="set-btns"><button type="button" class="btn outline" id="setCover" data-tab="cover">${icon('fitp', 's')}Deckblatt …</button><button type="button" class="btn outline" id="setLook" data-tab="look">${icon('file', 's')}Kopf- und Fußzeile …</button><button type="button" class="btn outline" id="setWiring" data-tab="wiring">${icon('wiring', 's')}Anschlussplan …</button><button type="button" class="btn outline" id="setAccess" data-tab="access">${icon('key', 's')}Zugangsdaten …</button></div>
 </div>`);
     const options = [...body.querySelectorAll('.theme')];
     const pick = (button) => {

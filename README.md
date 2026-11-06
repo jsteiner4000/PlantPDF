@@ -67,7 +67,8 @@ src/
   studio/                 „Dokumentation erstellen“: Projekt (model.js), Seitensatz als SVG (render.js,
                           wiring.js: Anschlussplan; Leitungsarten, Kennzeichen, Klemmenplan-Spalten
                           in wiring-catalog.js; Deckblatt-Felder, Kopf- und Fußzeile in
-                          doc-catalog.js; Vorgaben für neue Dokumente: presets.js, Dialog mit
+                          doc-catalog.js; Zugangsdaten-Spalten und Auswahllisten in access-catalog.js;
+                          Vorgaben für neue Dokumente: presets.js, Dialog mit
                           Reitern in presets-dialog.js),
                           Arbeitsbereich (studio.js, inspector.js),
                           Lageplan (site.js; Werkzeuge site-tools.js, Maße geo.js), Fotos (photos.js,

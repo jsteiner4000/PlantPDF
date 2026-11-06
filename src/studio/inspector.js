@@ -31,7 +31,6 @@ import {
   newUser,
   newContact,
   newGuard,
-  ROLES,
   sectionTitle,
   symbolInfo,
   symbolLabels,
@@ -46,7 +45,10 @@ import {
   mergeWiringPresets,
   defaultCoverFields,
   cleanPageLook,
+  cleanAccessCols,
+  loadAccessPresets,
 } from './model.js';
+import { accessBlocksEditor, accessTablesEditor } from './access-catalog.js';
 import { categoriesEditor, columnsEditor, ensureWireLists, marksEditor, showEditor } from './wiring-catalog.js';
 import { fieldLabel, lookEditor } from './doc-catalog.js';
 import { thumbOf } from './thumbs.js';
@@ -74,7 +76,19 @@ const KIND_TITLE = {
 };
 
 /** Vorschläge für Fernzugriff-Dienste (frei änderbar). */
-const SERVICES = ['DDNS', 'Portfreigabe', 'VPN', 'Hersteller-Cloud', 'Fernwartung', 'Weboberfläche'];
+/** Vorschlagsliste (datalist) im Dokument anlegen bzw. auf den Stand der Vorgaben bringen. */
+function pickList(id, values) {
+  let el = document.getElementById(id);
+  if (!el) {
+    el = document.createElement('datalist');
+    el.id = id;
+    document.body.appendChild(el);
+  }
+  const key = JSON.stringify(values);
+  if (el.dataset.key === key) return;
+  el.dataset.key = key;
+  el.replaceChildren(...values.map((v) => Object.assign(document.createElement('option'), { value: v })));
+}
 
 export class Inspector {
   constructor(studio, head, body) {
@@ -944,41 +958,14 @@ Object.assign(Inspector.prototype, {
         'Sonst erscheinen Punkte. Beim Erstellen der PDF fragt PlantPDF noch einmal nach.',
       ),
     );
-    const blocks = this.group('In der PDF');
-    for (const b of ACCESS_BLOCKS)
-      blocks.appendChild(
-        this.check(tx(b.title, 'de'), !!s.blocks[b.id], (v) =>
-          studio.change(`${tx(b.title, 'de')} ${v ? 'ein' : 'aus'}`, () => (s.blocks[b.id] = v), { inspector: true }),
-        ),
-      );
-    // wählbare Spalten je Tabelle (leere Spalten entfallen ohnehin)
-    const cols = this.group('Spalten');
-    for (const b of ACCESS_BLOCKS) {
-      if (!b.columns || !s.blocks[b.id]) continue;
-      const hidden = new Set(s.hide[b.id] || []);
-      const chips = htmlToElement('<div class="sd-chips multi"></div>');
-      for (const c of b.columns.filter((x) => !x.fixed)) {
-        const on = !hidden.has(c.key);
-        const chip = htmlToElement(
-          `<button type="button" aria-pressed="${on}" class="${on ? 'on' : ''}">${on ? icon('check', 's') : ''}${escapeHtml(tx(c.label, 'de'))}</button>`,
-        );
-        chip.addEventListener('click', () =>
-          studio.change(
-            'Spalten geändert',
-            () => {
-              const list = new Set(s.hide[b.id] || []);
-              if (list.has(c.key)) list.delete(c.key);
-              else list.add(c.key);
-              s.hide[b.id] = [...list];
-            },
-            { inspector: true },
-          ),
-        );
-        chips.appendChild(chip);
-      }
-      cols.append(htmlToElement(`<span class="sd-l">${escapeHtml(tx(b.title, 'de'))}</span>`), chips);
-    }
-    if (!cols.querySelector('.sd-chips')) cols.remove();
+    const ctx = {
+      langs: langsOf(this.project),
+      commit: (label, fn, o = {}) => studio.change(label, fn, { key: o.key || null, inspector: !!o.rebuild }),
+    };
+    if (!s.cols) s.cols = cleanAccessCols(null, s.hide);
+    this.group('In der PDF', accessBlocksEditor(s.blocks, ctx));
+    // Spalten je Tabelle (Reihenfolge, ein/aus, Überschrift; leere Spalten entfallen ohnehin)
+    if (ACCESS_BLOCKS.some((b) => b.columns && s.blocks[b.id])) this.group('Spalten', accessTablesEditor(s, ctx, true));
     const devices = this.group(
       `Geräte (${s.devices.length})`,
       this.rows(s.devices, {
@@ -1023,8 +1010,7 @@ Object.assign(Inspector.prototype, {
   usersEditor(group, d) {
     const studio = this.studio;
     const list = [d, ...d.users];
-    if (!document.getElementById('sdRoles'))
-      document.body.appendChild(htmlToElement(`<datalist id="sdRoles">${ROLES.map((r) => `<option value="${escapeHtml(r)}">`).join('')}</datalist>`));
+    pickList('sdRoles', loadAccessPresets().roles);
     group.appendChild(htmlToElement(`<span class="sd-l sd-users-h">Benutzer (${list.filter((u) => u.user || u.password).length || 0})</span>`));
     list.forEach((u, i) => {
       const row = htmlToElement('<div class="sd-user"></div>');
@@ -1129,7 +1115,7 @@ Object.assign(Inspector.prototype, {
       this.secret('Schlüssel', src, 'key'),
       this.select(
         'Verschlüsselung',
-        ['WPA2', 'WPA3', 'WPA2/WPA3', 'WPA', 'WEP', 'Offen'].map((v) => [v, v]),
+        [...new Set([...loadAccessPresets().security, ...(w.security ? [w.security] : [])])].map((v) => [v, v]),
         w.security,
         (v) => studio.change('Verschlüsselung geändert', () => (w.security = v)),
       ),
@@ -1147,9 +1133,8 @@ Object.assign(Inspector.prototype, {
 
   remoteForm(s, r) {
     const service = this.text('Dienst', r, 'service', { placeholder: 'z. B. DDNS, VPN, Portfreigabe' });
-    const list = htmlToElement(`<datalist id="sdServices">${SERVICES.map((v) => `<option value="${escapeHtml(v)}">`).join('')}</datalist>`);
+    pickList('sdServices', loadAccessPresets().services);
     service.querySelector('input').setAttribute('list', 'sdServices');
-    service.appendChild(list);
     this.group(
       'Fernzugriff',
       service,

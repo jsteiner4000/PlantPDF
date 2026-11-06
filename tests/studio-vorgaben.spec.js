@@ -15,7 +15,7 @@ const project = (page) => page.evaluate(() => JSON.parse(JSON.stringify(window.p
 
 async function openPresets(page, tab) {
   await page.evaluate(() => void window.pdfEditor.settings()); // nicht auf das Schließen warten
-  await page.locator(tab === 'look' ? '#setLook' : tab === 'wiring' ? '#setWiring' : '#setCover').click();
+  await page.locator(`.set-btns [data-tab="${tab}"]`).click();
   const dlg = page.locator('.dlg', { has: page.locator('.pre-shell') });
   await expect(dlg).toBeVisible();
   return dlg;
@@ -226,4 +226,91 @@ test('Laden prüft Felder und Fußzeile; ältere Dokumente bleiben wie bisher; N
   expect(m.formatDocNo('{JJJJ}-{NR}', 7, 3, d)).toBe('2026-007');
   expect(m.formatDocNo('A{JJ}{MM}{TT}/{NR}', 12, 2, d)).toBe('A260305/12');
   expect(m.formatDocNo('fest', 1, 3, d)).toBe('fest');
+});
+
+test('Vorgaben Zugangsdaten: Bereiche, Spalten (Reihenfolge, Name), Passwörter, Auswahllisten', async ({ browser }) => {
+  const { page, context, errors } = await launch(browser, 'neubau');
+  try {
+    const dlg = await openPresets(page, 'access');
+    // Netzwerk ein, Fernzugriff aus
+    await dlg.locator('[data-block="network"] input').check();
+    await dlg.locator('[data-block="remote"] input').uncheck();
+    // Geräte-Zugänge: „Rolle“ aus, „IP-Adresse“ nach vorn und umbenannt
+    const dev = dlg.locator('.sd-wcols[data-table="devices"]');
+    await dev.locator('.sd-wcol[data-key="role"] input[type=checkbox]').uncheck();
+    await dev.locator('.sd-wcol[data-key="ip"] button[title="Nach links"]').click();
+    await dev.locator('.sd-wcol[data-key="ip"] .fld').fill('IP');
+    await dlg.locator('.sd-check', { hasText: 'Passwörter und Schlüssel' }).locator('input').check();
+    await dlg.locator('textarea[data-list="services"]').fill('Hik-Connect\nMeine Cloud\n\nHik-Connect');
+    await dlg.locator('textarea[data-list="roles"]').fill('Admin\nKunde');
+    await closePresets(page, dlg);
+
+    await newDocumentation(page);
+    let a = await page.evaluate(() => JSON.parse(JSON.stringify(window.pdfEditor.studio.project.sections.find((s) => s.type === 'access'))));
+    expect(a.blocks).toMatchObject({ network: true, remote: false });
+    expect(a.showPasswords).toBe(true);
+    expect(a.cols.devices.slice(0, 2).map((c) => c.key)).toEqual(['ip', 'name']);
+    expect(a.cols.devices.find((c) => c.key === 'role').show).toBe(false);
+    // Gerät mit Rolle und IP: Kopf der Tabelle in eingestellter Reihenfolge, Rolle fehlt
+    const index = await page.evaluate(() => {
+      const st = window.pdfEditor.studio;
+      const s = st.project.sections.find((x) => x.type === 'access');
+      st.change('Gerät', () => s.devices.push({ id: 'd1', sym: null, name: { de: 'Rekorder', en: '' }, ip: '10.0.0.5', web: '', user: 'admin', password: 'geheim', role: 'Admin', users: [], note: { de: '', en: '' }, model: '', serial: '', mac: '', firmware: '', location: { de: '', en: '' } }));
+      return st.doc.pages.findIndex((p) => p.section === s.id);
+    });
+    let svg = await svgOf(page, index);
+    expect(svg).toContain('>IP<');
+    expect(svg.indexOf('>IP<')).toBeLessThan(svg.indexOf('>Gerät<'));
+    expect(svg).not.toContain('>Rolle<');
+    expect(svg).toContain('>geheim<');
+    // Auswahllisten am Gerät bzw. Fernzugriff
+    const services = await page.evaluate(() => [...document.querySelectorAll('#sdServices option')].map((o) => o.value));
+    await page.evaluate(() => window.pdfEditor.studio.select({ kind: 'device', id: 'd1', section: window.pdfEditor.studio.project.sections.find((s) => s.type === 'access').id }));
+    const roles = await page.evaluate(() => [...document.querySelectorAll('#sdRoles option')].map((o) => o.value));
+    expect(roles).toEqual(['Admin', 'Kunde']);
+    expect(services).toBeDefined();
+    await page.evaluate(() => {
+      const st = window.pdfEditor.studio;
+      const s = st.project.sections.find((x) => x.type === 'access');
+      st.change('Fernzugriff', () => s.remote.push({ id: 'r1', service: '', address: '', user: '', password: '', note: { de: '', en: '' } }));
+      st.select({ kind: 'remote', id: 'r1', section: s.id });
+    });
+    await expect.poll(() => page.evaluate(() => [...document.querySelectorAll('#sdServices option')].map((o) => o.value))).toEqual(['Hik-Connect', 'Meine Cloud']);
+
+    // im Dokument: Spalte wieder einblenden
+    await page.evaluate(() => window.pdfEditor.studio.select({ kind: 'section', id: window.pdfEditor.studio.project.sections.find((s) => s.type === 'access').id }));
+    const cols = page.locator('.sd-grp', { has: page.locator('h4', { hasText: 'Spalten' }) });
+    await cols.locator('.sd-wcols[data-table="devices"] .sd-wcol[data-key="role"] input[type=checkbox]').check();
+    svg = await svgOf(page, index);
+    expect(svg).toContain('>Rolle<');
+    expect(errors).toEqual([]);
+  } finally {
+    await context.close();
+  }
+});
+
+test('Zugangsdaten älterer Dokumente: ausgeblendete Spalten bleiben ausgeblendet', async () => {
+  const m = await import('../src/studio/model.js');
+  const p = m.newProject('documentation');
+  const a = JSON.parse(JSON.stringify(p.sections.find((s) => s.type === 'access')));
+  delete a.cols;
+  a.hide = { devices: ['role', 'web'], hardware: [], wifi: ['note'], remote: 'kaputt' };
+  const q = m.normalizeProject({ ...JSON.parse(JSON.stringify(p)), sections: [a] });
+  const cols = q.sections[0].cols;
+  const shown = (t) => cols[t].filter((c) => c.show).map((c) => c.key);
+  expect(shown('devices')).toEqual(['name', 'ip', 'user', 'password', 'note']);
+  expect(shown('hardware')).toContain('location');
+  expect(shown('wifi')).toEqual(['ssid', 'key', 'security']);
+  expect(shown('remote').length).toBe(5);
+  expect(q.sections[0].hide).toBeUndefined();
+  // fremde Spalten und Überschriften werden geprüft; feste Spalten bleiben sichtbar
+  const r = m.cleanAccessCols({ devices: [{ key: 'name', show: false, title: { de: 'X'.repeat(99) } }, { key: 'evil' }] });
+  expect(r.devices[0]).toMatchObject({ key: 'name', show: true });
+  expect(r.devices[0].title.de.length).toBe(40);
+  expect(r.devices.map((c) => c.key)).not.toContain('evil');
+  expect(r.devices.length).toBe(7);
+  // Vorgaben: Listen ohne Doppelte und Leere
+  const pre = m.cleanAccessPresets({ roles: ['A', ' A ', '', 5, 'B'], blocks: { network: true, evil: true } });
+  expect(pre.roles).toEqual(['A', 'B']);
+  expect(pre.blocks).toEqual({ devices: true, hardware: true, network: true, wifi: true, remote: true });
 });

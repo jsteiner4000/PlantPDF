@@ -5,7 +5,7 @@
  * erscheinen nur, wenn das für diese Fassung gewählt ist – sonst als Punkte.
  */
 import { C, MONO, PAGE, line, rect, text } from './svg.js';
-import { ACCESS_BLOCKS, STRINGS, tx } from './model.js';
+import { ACCESS_BLOCKS, STRINGS, accessColLabel, tx } from './model.js';
 import { wrap } from './measure.js';
 
 const MASK = '••••••••';
@@ -123,10 +123,15 @@ export function accessPages(section, ts, { top = 132, bottom = PAGE.bottom } = {
       table(block, cols, rows, 'network');
       continue;
     }
-    const hidden = new Set(section.hide[block.id] || []);
     const rows = section[block.list];
     const filled = (r, c) => valueText(r[c.key], 'de') || valueText(r[c.key], 'en') || (r.users || []).some((u) => valueText(u[c.key], 'de'));
-    const cols = block.columns.filter((c) => c.fixed || (!hidden.has(c.key) && rows.some((r) => filled(r, c))));
+    // Spalten wie eingestellt (Reihenfolge, ein/aus, Überschrift); leere fallen weg
+    const defs = new Map(block.columns.map((c) => [c.key, c]));
+    const conf = (section.cols && section.cols[block.id]) || block.columns.map((c) => ({ key: c.key, show: true }));
+    const cols = conf
+      .filter((x) => defs.has(x.key))
+      .map((x) => ({ ...defs.get(x.key), label: accessColLabel(defs.get(x.key), x), show: x.show !== false }))
+      .filter((c) => c.fixed || (c.show && rows.some((r) => filled(r, c))));
     table(block, cols, rows, block.list === 'devices' ? 'device' : block.list);
   }
 
