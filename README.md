@@ -65,7 +65,9 @@ src/
   render/detail-renderer.js  scharfer Detail-Canvas für den sichtbaren Ausschnitt bei hohem Zoom
   platform/desktop-bridge.js  Anbindung an die Desktop-App (im Browser wirkungslos)
   studio/                 „Dokumentation erstellen“: Projekt (model.js), Seitensatz als SVG (render.js,
-                          wiring.js: Anschlussplan), Arbeitsbereich (studio.js, inspector.js),
+                          wiring.js: Anschlussplan; Leitungsarten, Kennzeichen, Klemmenplan-Spalten
+                          in wiring-catalog.js, Vorgaben in den Einstellungen: presets-dialog.js),
+                          Arbeitsbereich (studio.js, inspector.js),
                           Lageplan (site.js; Werkzeuge site-tools.js, Maße geo.js), Fotos (photos.js,
                           exif.js), Zugangsdaten (access.js),
                           Anleitungen (chapters.js: Bausteine, Seitenumbruch, Nummern, Verweise),

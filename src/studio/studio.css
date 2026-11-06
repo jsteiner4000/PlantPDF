@@ -1635,3 +1635,107 @@ textarea.fld.mono {
   color: var(--ink3);
   line-height: 1.4;
 }
+
+/* ---------- Kataloge des Anschlussplans (wiring-catalog.js) ---------- */
+.sd-cats.wide {
+  gap: 8px;
+}
+.sd-wcat {
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel);
+}
+.sd-wcat > .sd-f {
+  margin: 8px 0 0;
+}
+.sd-cat.with-more {
+  grid-template-columns: 32px 1fr 30px 30px;
+}
+.sd-wsum {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 0 2px;
+  min-height: 12px;
+  color: var(--ink3);
+  font-size: 11.5px;
+}
+.sd-wpre {
+  width: 36px;
+  height: 10px;
+  flex: none;
+}
+.sd-wdet {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+.sd-wdet .sd-seg button {
+  font-size: 11.5px;
+}
+.sd-wcols {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sd-wcol {
+  display: grid;
+  grid-template-columns: 22px 1fr 30px 30px;
+  gap: 6px;
+  align-items: center;
+}
+.sd-wcol .btn {
+  width: 30px;
+  height: 30px;
+}
+.sd-wcol input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  margin: 0 3px;
+  accent-color: var(--acc);
+}
+.sd-newmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.sd-newmark .fld {
+  width: 130px;
+  height: 28px;
+}
+.sd-newmark .sd-color {
+  width: 28px;
+  height: 28px;
+}
+/* Einstellungen › Vorgaben für Dokumentationen */
+.dlg:has(.pre-dlg) {
+  width: min(600px, 92vw);
+  overflow: hidden;
+}
+.pre-dlg {
+  max-height: min(68vh, 720px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+.pre-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.pre-dlg .sd-grp:last-child {
+  border-bottom: 0;
+}
+.pre-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.sd-cat .sd-bi,
+.sd-cat .sd-bi .fld,
+.sd-cat > .fld {
+  width: 100%;
+  min-width: 0;
+}

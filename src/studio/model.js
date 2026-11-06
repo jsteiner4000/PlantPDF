@@ -54,6 +54,10 @@ export const STRINGS = {
   func: T('Funktion', 'Function'),
   connected: T('Angeschlossen an', 'Connected to'),
   remark: T('Bemerkung', 'Remark'),
+  target: T('Baugruppe', 'Module'),
+  wire: T('Ader', 'Wire'),
+  cross: T('Querschnitt', 'Cross-section'),
+  marks: T('Kennzeichen', 'Marking'),
   hints: T('Hinweise zur Verdrahtung', 'Wiring notes'),
   legend: T('Legende', 'Legend'),
   seePage: T(
@@ -119,13 +123,236 @@ export const langsOf = (project) => (project.lang === 'de+en' ? ['de', 'en'] : [
 
 /* ---------- Anschlussplan ---------- */
 
+/** Linienstile und Strichstärken der Leitungsarten. */
+export const WIRE_STYLES = [
+  ['solid', 'Durchgezogen'],
+  ['dashed', 'Gestrichelt'],
+  ['dotted', 'Gepunktet'],
+];
+export const WIRE_WIDTHS = [
+  ['thin', 'Dünn'],
+  ['normal', 'Normal'],
+  ['thick', 'Dick'],
+];
+
+/**
+ * Leitungsart: Name, Zeichenfarbe, Linienstil, Strichstärke, Kurzzeichen (steht an der Leitung) und
+ * reale Kabeldaten (Aderfarbe, Querschnitt – Legende und Klemmenplan).
+ */
+export const newCategory = (over = {}) => ({
+  id: uid('c'),
+  name: T('Neue Leitung', 'New line'),
+  color: '#5b6b7a',
+  style: 'solid',
+  width: 'normal',
+  code: '',
+  wire: '',
+  cross: '',
+  ...over,
+});
+
 /** Leitungsarten eines neuen Plans (neutral benannt, im Plan frei änderbar). */
 export const DEFAULT_CATEGORIES = () => [
-  { id: 'sig', name: T('Signal', 'Signal'), color: '#1f3b4d' },
-  { id: 'ls', name: T('Eingang', 'Input'), color: '#15803d' },
-  { id: 'led', name: T('Ausgang', 'Output'), color: '#b91c1c' },
-  { id: 'pwr', name: T('Versorgung', 'Supply'), color: '#b45309' },
+  newCategory({ id: 'sig', name: T('Signal', 'Signal'), color: '#1f3b4d' }),
+  newCategory({ id: 'ls', name: T('Eingang', 'Input'), color: '#15803d' }),
+  newCategory({ id: 'led', name: T('Ausgang', 'Output'), color: '#b91c1c' }),
+  newCategory({ id: 'pwr', name: T('Versorgung', 'Supply'), color: '#b45309' }),
+  newCategory({ id: 'bus', name: T('Bus / Daten', 'Bus / data'), color: '#6d28d9', style: 'dashed' }),
 ];
+
+/** Kennzeichen (frei beschriftetes Schild, z. B. „12 V DC“, „USV“): Text, Farbe, Erklärung in der Legende. */
+export const newMarking = (over = {}) => ({ id: uid('k'), label: '', color: '#b45309', text: T('', ''), ...over });
+
+/** Kennzeichen eines neuen Plans. */
+export const DEFAULT_MARKS = () => [
+  newMarking({ id: 'k12', label: '12 V DC', color: '#b45309', text: T('Versorgung 12 V DC', '12 V DC supply') }),
+  newMarking({ id: 'k24', label: '24 V DC', color: '#c2410c', text: T('Versorgung 24 V DC', '24 V DC supply') }),
+  newMarking({ id: 'k230', label: '230 V AC', color: '#b91c1c', text: T('Netzspannung 230 V AC', 'Mains 230 V AC') }),
+  newMarking({ id: 'kusv', label: 'USV', color: '#0f766e', text: T('Über USV versorgt', 'Supplied via UPS') }),
+];
+
+/**
+ * Spalten des Klemmenplans. `fixed`: immer zu sehen. Andere Spalten ohne Inhalt fallen beim Setzen
+ * weg (lesbar auf A4). `w`: Gewicht der Breite.
+ */
+export const TERMINAL_COLUMNS = [
+  { key: 'pin', w: 1.15, fixed: true },
+  { key: 'func', w: 2.6 },
+  { key: 'target', w: 2.1 },
+  { key: 'connected', w: 2.1 },
+  { key: 'wire', w: 1.2 },
+  { key: 'cross', w: 1.25 },
+  { key: 'marks', w: 1.5 },
+  { key: 'remark', w: 2.6 },
+];
+/** Spalten älterer Pläne (vor den einstellbaren Spalten). */
+export const LEGACY_COLUMNS = ['pin', 'func', 'connected', 'remark'];
+
+export const defaultColumns = () => TERMINAL_COLUMNS.map((c) => ({ key: c.key, show: true, title: T('', '') }));
+
+/** Was ein Anschlussplan zeigt. */
+export const defaultShow = () => ({ legend: true, terminals: true, hints: true });
+
+/** Vorgaben für neue Anschlusspläne (Einstellungen › Vorgaben), wenn nichts eingestellt ist. */
+export const defaultWiringPresets = () => ({
+  categories: DEFAULT_CATEGORIES(),
+  marks: DEFAULT_MARKS(),
+  columns: defaultColumns(),
+  show: defaultShow(),
+});
+
+const PRESETS_KEY = 'pdfix.presets.wiring';
+
+/** Vorgaben aus den Einstellungen (bereinigt); fehlen sie, die eingebauten. */
+export function loadWiringPresets() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PRESETS_KEY) || 'null');
+    if (raw) return cleanWiringPresets(raw);
+  } catch {}
+  return defaultWiringPresets();
+}
+
+export function saveWiringPresets(presets) {
+  try {
+    localStorage.setItem(PRESETS_KEY, JSON.stringify(cleanWiringPresets(presets)));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function resetWiringPresets() {
+  try {
+    localStorage.removeItem(PRESETS_KEY);
+  } catch {}
+}
+
+/** Vorgaben (aus Datei oder Speicher) prüfen: nur bekannte Felder, begrenzte Längen. */
+export function cleanWiringPresets(raw) {
+  const d = defaultWiringPresets();
+  const ids = new Set();
+  const id = (v, prefix) => {
+    let out = typeof v === 'string' && ID_RE.test(v) && !ids.has(v) ? v : uid(prefix);
+    while (ids.has(out)) out = uid(prefix);
+    ids.add(out);
+    return out;
+  };
+  const r = raw && typeof raw === 'object' ? raw : {};
+  const categories = cleanCategories(r.categories, id);
+  return {
+    categories: categories.length ? categories : d.categories,
+    marks: Array.isArray(r.marks) ? cleanMarks(r.marks, id) : d.marks,
+    columns: cleanColumns(r.columns) || d.columns,
+    show: cleanShow(r.show),
+  };
+}
+
+function cleanCategories(list, id) {
+  return (Array.isArray(list) ? list : [])
+    .filter((c) => c && typeof c === 'object')
+    .slice(0, 60)
+    .map((c) => ({
+      id: id(c.id, 'c'),
+      name: toT(c.name),
+      color: str_(c.color, 9) || '#5b6b7a',
+      style: oneOf(c.style, ['solid', 'dashed', 'dotted'], 'solid'),
+      width: oneOf(c.width, ['thin', 'normal', 'thick'], 'normal'),
+      code: str_(c.code, 12),
+      wire: str_(c.wire, 24),
+      cross: str_(c.cross, 24),
+    }));
+}
+
+function cleanMarks(list, id) {
+  return list
+    .filter((k) => k && typeof k === 'object')
+    .slice(0, 60)
+    .map((k) => ({ id: id(k.id, 'k'), label: str_(k.label, 24), color: str_(k.color, 9) || '#b45309', text: toT(k.text) }));
+}
+
+/** Spalten des Klemmenplans; null = wie früher (vier feste Spalten). */
+function cleanColumns(list) {
+  if (!Array.isArray(list)) return null;
+  const seen = new Set();
+  const out = [];
+  for (const c of list) {
+    if (!c || typeof c !== 'object' || seen.has(c.key) || !TERMINAL_COLUMNS.some((t) => t.key === c.key)) continue;
+    seen.add(c.key);
+    out.push({ key: c.key, show: c.key === 'pin' ? true : c.show !== false, title: toT(c.title) });
+  }
+  // neue Spalten späterer Fassungen hinten anfügen (ausgeblendet)
+  for (const t of TERMINAL_COLUMNS) if (!seen.has(t.key)) out.push({ key: t.key, show: false, title: T('', '') });
+  return out;
+}
+
+const cleanShow = (v) => {
+  const o = v && typeof v === 'object' ? v : {};
+  return { legend: o.legend !== false, terminals: o.terminals !== false, hints: o.hints !== false };
+};
+
+/**
+ * Anschlusspläne älterer Fassungen im Speicher auf den aktuellen Aufbau bringen (an Ort und Stelle):
+ * das eine Kennzeichen (`badge`) wird zur Liste `marks`, fehlende Felder bekommen Standardwerte.
+ * Gespeicherte Projekte erledigt das Bereinigen beim Laden (cleanWiring); dies hier deckt Projekte
+ * ab, die direkt geöffnet werden.
+ */
+export function upgradeProject(project) {
+  for (const s of project.sections || []) {
+    if (s.type !== 'wiring') continue;
+    for (const c of s.categories || []) {
+      c.style ||= 'solid';
+      c.width ||= 'normal';
+      c.code ??= '';
+      c.wire ??= '';
+      c.cross ??= '';
+    }
+    if (!Array.isArray(s.marks)) {
+      const old = s.badge && typeof s.badge === 'object' ? s.badge : { label: '12 V', color: '#b45309', text: T('', '') };
+      const mark = newMarking({ label: old.label || '', color: old.color || '#b45309', text: old.text && typeof old.text === 'object' ? old.text : T(old.text || '', '') });
+      s.marks = mark.label ? [mark] : [];
+      for (const b of s.boxes || []) b.marks = b.badge && mark.label ? [mark.id] : [];
+      delete s.badge;
+    }
+    for (const b of s.boxes || []) {
+      if (!Array.isArray(b.marks)) b.marks = [];
+      delete b.badge;
+      b.bmk ??= '';
+      if (!b.make || typeof b.make !== 'object') b.make = T(b.make || '', '');
+    }
+    for (const p of (s.hub && s.hub.pins) || []) {
+      p.wire ??= '';
+      p.cross ??= '';
+      if (!Array.isArray(p.marks)) p.marks = [];
+    }
+    if (s.columns === undefined) s.columns = null;
+    if (!s.show || typeof s.show !== 'object') s.show = defaultShow();
+  }
+  return project;
+}
+
+/**
+ * Leitungsarten und Kennzeichen aus den Vorgaben ergänzen, die im Plan noch fehlen (gleiche Kennung
+ * oder gleicher Name/Text gilt als vorhanden). Ergebnis: Anzahl der ergänzten Einträge.
+ */
+export function mergeWiringPresets(section, presets) {
+  let added = 0;
+  const catKey = (c) => (tx(c.name, 'de') || '').trim().toLowerCase();
+  for (const c of presets.categories) {
+    if (section.categories.some((x) => x.id === c.id || catKey(x) === catKey(c))) continue;
+    section.categories.push(copy(c));
+    added++;
+  }
+  section.marks ||= [];
+  for (const k of presets.marks) {
+    if (section.marks.some((x) => x.id === k.id || (x.label || '').trim() === (k.label || '').trim())) continue;
+    section.marks.push(copy(k));
+    added++;
+  }
+  return added;
+}
+
+/** Kopie der Vorgaben für einen neuen Plan (eigene Kennungen nur, wo nötig). */
+const copy = (v) => JSON.parse(JSON.stringify(v));
 
 /**
  * Neue Baugruppe. Lage und Größe ergeben sich automatisch; `y` (pt unter der Oberkante der
@@ -139,7 +366,12 @@ export function newBox(cat = 'sig', side = 'left') {
     lines: T('', ''),
     cat,
     side,
-    badge: false,
+    /** Kennzeichen (Kennungen aus `section.marks`) */
+    marks: [],
+    /** Betriebsmittelkennzeichen, z. B. „-K1“ (optional) */
+    bmk: '',
+    /** Hersteller / Typ (optional, eigene Zeile im Kasten) */
+    make: T('', ''),
     bus: false,
     parent: null,
     fill: side === 'bottom',
@@ -160,19 +392,27 @@ export const newPin = (name = '', box = null) => ({
   box,
   terminal: T('', ''),
   note: T('', ''),
+  /** Aderfarbe und Querschnitt; leer = wie die Leitungsart */
+  wire: '',
+  cross: '',
+  /** Kennzeichen dieses Anschlusses (an seiner Leitung) */
+  marks: [],
 });
 
 /** Neuer Hinweis. */
 export const newHint = (cat = 'sig') => ({ id: uid('h'), cat, title: T('', ''), text: T('', '') });
 
 /** Leerer Anschlussplan: eine zentrale Baugruppe, Leitungsarten, sonst nichts. */
-export function newWiring() {
+export function newWiring(presets = loadWiringPresets()) {
+  const p = copy(presets);
   return {
     id: uid('s'),
     type: 'wiring',
     system: T('', ''),
-    categories: DEFAULT_CATEGORIES(),
-    badge: { label: '12 V', color: '#b45309', text: T('Baugruppe wird direkt aus dem 12-V-Netzteil versorgt.', 'Module is supplied directly from the 12 V power supply.') },
+    categories: p.categories,
+    marks: p.marks,
+    columns: p.columns,
+    show: p.show,
     hub: { name: T('Steuerung', 'Controller'), short: T('', ''), model: T('', ''), note: T('', ''), pins: [] },
     boxes: [],
     hints: [],
@@ -1155,9 +1395,27 @@ function cleanWiring(s, id) {
     if (typeof v === 'string') remap.set(v, out);
     return out;
   };
-  const categories = (Array.isArray(s.categories) ? s.categories : d.categories)
-    .filter((c) => c && typeof c === 'object')
-    .map((c) => ({ id: id(c.id, 'c'), name: toT(c.name), color: str_(c.color, 9) }));
+  // Leitungsarten und Kennzeichen: Kennungen nur je Plan eindeutig (Baugruppen verweisen darauf)
+  const local = new Set();
+  const lid = (v, prefix) => {
+    let out = typeof v === 'string' && ID_RE.test(v) && !local.has(v) ? v : uid(prefix);
+    while (local.has(out)) out = uid(prefix);
+    local.add(out);
+    return out;
+  };
+  const categories = cleanCategories(Array.isArray(s.categories) ? s.categories : d.categories, lid);
+  // Kennzeichen: früher genau eines je Plan (`badge`, an Baugruppen mit `badge: true`)
+  let marks;
+  let legacyMark = null;
+  if (Array.isArray(s.marks)) marks = cleanMarks(s.marks, lid);
+  else {
+    const old = s.badge && typeof s.badge === 'object' ? s.badge : null;
+    const label = old ? str_(old.label, 24) : '12 V';
+    legacyMark = { id: lid('kalt', 'k'), label, color: (old && str_(old.color, 9)) || '#b45309', text: old ? toT(old.text) : T('Baugruppe wird direkt aus dem 12-V-Netzteil versorgt.', 'Module is supplied directly from the 12 V power supply.') };
+    marks = legacyMark.label ? [legacyMark] : [];
+  }
+  const markIds = new Set(marks.map((k) => k.id));
+  const markList = (v) => (Array.isArray(v) ? [...new Set(v.filter((x) => typeof x === 'string' && markIds.has(x)))] : []);
   const boxes = (Array.isArray(s.boxes) ? s.boxes : [])
     .filter((b) => b && typeof b === 'object')
     .map((b) => ({
@@ -1167,7 +1425,9 @@ function cleanWiring(s, id) {
       lines: toT(b.lines),
       cat: str_(b.cat, 64),
       side: oneOf(b.side, ['left', 'right', 'bottom'], 'left'),
-      badge: bool(b.badge),
+      marks: Array.isArray(b.marks) ? markList(b.marks) : legacyMark && bool(b.badge) && markIds.has(legacyMark.id) ? [legacyMark.id] : [],
+      bmk: str_(b.bmk, 24),
+      make: toT(b.make),
       bus: bool(b.bus),
       parent: typeof b.parent === 'string' ? b.parent : null,
       fill: bool(b.fill),
@@ -1194,14 +1454,19 @@ function cleanWiring(s, id) {
       box: typeof p.box === 'string' && remap.has(p.box) ? remap.get(p.box) : null,
       terminal: toT(p.terminal),
       note: toT(p.note),
+      wire: str_(p.wire, 24),
+      cross: str_(p.cross, 24),
+      marks: markList(p.marks),
     }));
-  const badge = s.badge && typeof s.badge === 'object' ? s.badge : d.badge;
   return {
     id: id(s.id, 's'),
     type: 'wiring',
     system: toT(s.system),
     categories: categories.length ? categories : d.categories,
-    badge: { label: str_(badge.label, 20), color: str_(badge.color, 9) || d.badge.color, text: toT(badge.text) },
+    marks,
+    // ältere Pläne: Klemmenplan wie bisher (vier Spalten)
+    columns: cleanColumns(s.columns),
+    show: cleanShow(s.show),
     hub: { name: toT(hub.name), short: toT(hub.short), model: toT(hub.model), note: toT(hub.note), pins },
     boxes,
     hints: (Array.isArray(s.hints) ? s.hints : [])

@@ -9,7 +9,7 @@
  * Maße, Schriftgrade und Farben folgen einem bewährten Anschlussplan-Vorbild.
  */
 import { C, PAGE, color, line, n, pill, rect, text } from './svg.js';
-import { STRINGS, tx } from './model.js';
+import { LEGACY_COLUMNS, STRINGS, T, TERMINAL_COLUMNS, tx } from './model.js';
 
 /** Rahmen des Schaltbilds auf Seite 1. */
 /**
@@ -39,8 +39,33 @@ export function catColor(section, cat) {
   return color(found ? found.color : cat, C.navy);
 }
 
-/** Farbe der Versorgungs-Kennzeichnung („12 V“). */
-export const badgeColor = (section) => color(section.badge && section.badge.color, '#b45309');
+/** Leitungsart zu einer Kennung (oder null). */
+export const categoryOf = (section, cat) => section.categories.find((c) => c.id === cat) || null;
+
+const STROKE_W = { thin: 1, normal: 1.5, thick: 2.4 };
+const DASH = { dashed: '5 3', dotted: '0.4 2.8' };
+
+/** Strichart einer Leitungsart: { width, dash, round }. */
+export function catStroke(section, cat) {
+  const c = categoryOf(section, cat);
+  return { width: STROKE_W[c && c.width] || 1.5, dash: (c && DASH[c.style]) || null, round: !!c && c.style === 'dotted' };
+}
+
+/** Linie im Stil einer Leitungsart (gestrichelt/gepunktet, Stärke; `scale` für dicke Verbindungslinien). */
+function styledLine(x1, y1, x2, y2, stroke, st, scale = 1) {
+  const w = +(st.width * scale).toFixed(2);
+  const dash = st.dash ? ` stroke-dasharray="${st.round ? `0.4 ${(2.8 * Math.max(1, w / 1.5)).toFixed(1)}` : st.dash}"` : '';
+  return `<line x1="${n(x1)}" y1="${n(y1)}" x2="${n(x2)}" y2="${n(y2)}" stroke="${stroke}" stroke-width="${w}"${dash}${st.round ? ' stroke-linecap="round"' : ''}/>`;
+}
+
+/** Kennzeichen (Einträge aus `section.marks`) zu einer Liste von Kennungen; leere entfallen. */
+export function marksOf(section, ids) {
+  const list = section.marks || [];
+  return (ids || []).map((id) => list.find((k) => k.id === id)).filter((k) => k && k.label);
+}
+
+/** Farbe eines Kennzeichens. */
+const markColor = (k) => color(k.color, '#b45309');
 
 /** Baugruppen in Zeichenreihenfolge: jede Unterbaugruppe direkt nach ihrer Baugruppe. */
 function ordered(boxes) {
@@ -75,8 +100,11 @@ export function busLabel(pins) {
 }
 
 /** Textzeilen einer Baugruppe: Titel und umbrochene Beschreibung (zweisprachig: Englisch grau, kursiv). */
-function boxText(ts, box, width) {
+function boxText(ts, box, width, titleCut = 0) {
   const lines = [];
+  // Hersteller / Typ: erste Zeile, grau
+  const make = (ts.runs(box.make || '').find((x) => !x.sec) || { text: '' }).text;
+  for (const t of make ? ts.wrap(make, 8.2, width) : []) lines.push({ text: t, sec: false, make: true });
   const runs = ts.runs(box.lines);
   const titles = ts.runs(box.title);
   for (const r of runs.filter((x) => !x.sec))
@@ -87,7 +115,7 @@ function boxText(ts, box, width) {
   for (const r of runs.filter((x) => x.sec))
     for (const t of ts.wrap(r.text, 8.2, width, 400, true)) lines.push({ text: t, sec: true });
   const title = (titles.find((x) => !x.sec) || { text: '' }).text;
-  return { title: ts.wrap(title, 9.5, width, 700)[0] || '', lines };
+  return { title: ts.wrap(title, 9.5, width - titleCut, 700)[0] || '', lines };
 }
 
 const num = (v) => v != null && v !== '' && Number.isFinite(+v);
@@ -103,26 +131,43 @@ export function layoutWiring(section, ts) {
   const boxes = [];
   const conns = [];
   const links = [];
-  const badgeLabel = (section.badge && section.badge.label) || '';
   const cursor = { left: D.top, right: D.top };
   const placed = new Map();
 
   const measure = (box, x, w) => {
-    const { title, lines } = boxText(ts, box, w - 14);
+    const bmk = String(box.bmk || '').trim();
+    const bmkW = bmk ? ts.width(bmk, 8.2, 700) + 8 : 0;
+    const { title, lines } = boxText(ts, box, w - 14, bmkW);
     const count = lines.length;
     const lastBase = count ? 28.5 + 10 * (count - 1) : 15;
     let natural = lastBase + 15.5;
-    let badge = null;
-    if (box.badge && badgeLabel) {
-      const bw = ts.width(badgeLabel, 7.2, 700) + 10;
-      badge = { x: x + w - 21.19 - bw, w: bw, label: badgeLabel };
-      // „12 V“ neben der letzten Zeile, wenn sie kurz genug ist – sonst darunter
+    // Kennzeichen: unten rechts, von rechts nach links; reicht die Breite nicht, weitere Zeilen
+    const pills = [];
+    let rows = 0;
+    const marks = marksOf(section, box.marks);
+    if (marks.length) {
+      const right = x + w - 21.19;
+      let cx = right;
+      rows = 1;
+      for (const k of marks) {
+        const pw = ts.width(k.label, 7.2, 700) + 10;
+        if (cx - pw < x + 7 && cx < right) {
+          rows++;
+          cx = right;
+        }
+        pills.push({ x: cx - pw, w: pw, row: rows - 1, label: k.label, color: markColor(k), id: k.id });
+        cx -= pw + 4;
+      }
+      // neben der letzten Zeile, wenn sie kurz genug ist – sonst darunter
       const last = lines[count - 1];
       const lastRight = last ? x + 7 + ts.width(last.text, 8.2, last.bold ? 700 : 400, last.sec) : x;
-      natural = Math.max(natural, lastBase + (lastRight + 6 <= badge.x ? 19.5 : 24));
+      const firstRowLeft = Math.min(...pills.filter((q) => q.row === rows - 1).map((q) => q.x));
+      natural = Math.max(natural, lastBase + (rows === 1 && lastRight + 6 <= firstRowLeft ? 19.5 : 24) + 15 * (rows - 1));
     }
-    return { title, lines, badge, h: Math.max(natural, num(box.h) ? +box.h : 0) };
+    return { title, lines, bmk, pills, rows, h: Math.max(natural, num(box.h) ? +box.h : 0) };
   };
+  /** Lage der Kennzeichen, sobald die Oberkante des Kastens feststeht. */
+  const placePills = (item, m) => m.pills.map((q) => ({ ...q, y: item.y + item.h - 20 - 15 * (m.rows - 1 - q.row) }));
 
   // Baugruppen links und rechts (mit Unterbaugruppen)
   for (const box of ordered(section.boxes)) {
@@ -136,12 +181,12 @@ export function layoutWiring(section, ts) {
     else if (parent) y = parent.y + parent.h + CHILD_GAP;
     else y = cursor[side] + (cursor[side] === D.top ? 16 : GAP);
     const c = catColor(section, box.cat);
-    const item = { id: box.id, box, side, x, y, w: D.boxW, h: m.h, color: c, title: m.title, lines: m.lines };
-    if (m.badge) item.badge = { ...m.badge, y: y + m.h - 20 };
+    const item = { id: box.id, box, side, x, y, w: D.boxW, h: m.h, color: c, title: m.title, lines: m.lines, bmk: m.bmk };
+    item.marks = placePills(item, m);
     boxes.push(item);
     placed.set(box.id, item);
     cursor[side] = Math.max(cursor[side], y + m.h);
-    if (parent) links.push({ x: x + D.boxW / 2, y1: parent.y + parent.h, y2: y, color: c });
+    if (parent) links.push({ x: x + D.boxW / 2, y1: parent.y + parent.h, y2: y, color: c, stroke: catStroke(section, box.cat) });
 
     // Leitungen zur Steuerung
     const own = pins.filter((p) => p.box === box.id);
@@ -149,6 +194,7 @@ export function layoutWiring(section, ts) {
     const groups = box.bus && own.length > 1 ? [own] : own.map((p) => [p]);
     const gap = num(box.pinGap) ? +box.pinGap : PIN_GAP;
     const first = num(box.pinY) ? y + +box.pinY : y + m.h / 2 - (gap * (groups.length - 1)) / 2;
+    const cat = categoryOf(section, box.cat);
     groups.forEach((group, i) => {
       conns.push({
         box: box.id,
@@ -158,6 +204,9 @@ export function layoutWiring(section, ts) {
         x1: side === 'right' ? D.hubX + D.hubW : x + D.boxW,
         x2: side === 'right' ? x : D.hubX,
         color: c,
+        stroke: catStroke(section, box.cat),
+        code: (cat && String(cat.code || '').trim()) || '',
+        marks: marksOf(section, [...new Set(group.flatMap((p) => p.marks || []))]),
         label: group.length > 1 ? busLabel(group) : group[0].label || group[0].name,
       });
     });
@@ -188,7 +237,8 @@ export function layoutWiring(section, ts) {
       fill: box.fill ? color(box.fillColor, tint(c)) : null,
       title: m.title,
       lines: m.lines,
-      badge: m.badge,
+      bmk: m.bmk,
+      m,
     });
   }
   let floor = D.bottom;
@@ -203,7 +253,10 @@ export function layoutWiring(section, ts) {
     const shift = minTop - bottoms[0].y;
     for (const b of bottoms) b.y += shift;
   }
-  for (const b of bottoms) if (b.badge) b.badge.y = b.y + b.h - 20;
+  for (const b of bottoms) {
+    b.marks = placePills(b, b.m);
+    delete b.m;
+  }
   boxes.push(...bottoms);
 
   const hubBottom = bottoms.length
@@ -221,7 +274,7 @@ export function layoutWiring(section, ts) {
     bottomLabel: bottomPins.map((p) => p.label || p.name).join(' / '),
   };
   if (bottoms.length)
-    links.push({ x: D.hubX + D.hubW / 2, y1: hubBottom, y2: bottoms[0].y, color: bottoms[0].color });
+    links.push({ x: D.hubX + D.hubW / 2, y1: hubBottom, y2: bottoms[0].y, color: bottoms[0].color, stroke: catStroke(section, bottoms[0].box.cat) });
 
   const contentBottom = Math.max(hubBottom, ...boxes.map((b) => b.y + b.h));
   const scale = contentBottom > D.bottom ? (D.bottom - D.top) / (contentBottom - D.top) : 1;
@@ -239,10 +292,12 @@ function tint(hex) {
 function boxSvg(b) {
   let s = rect(b.x, b.y, b.w, b.h, { fill: b.fill || '#fff', stroke: b.color, width: 1.3 });
   s += text(b.x + 7, b.y + 15, b.title, { size: b.side === 'bottom' ? 11 : 9.5, weight: 700, fill: b.color });
+  // Betriebsmittelkennzeichen rechts in der Kopfzeile
+  if (b.bmk) s += text(b.x + b.w - 7, b.y + 15, b.bmk, { size: 8.2, weight: 700, fill: C.muted, anchor: 'end' });
   b.lines.forEach((l, i) => {
     s += text(b.x + 7, b.y + 28.5 + 10 * i, l.text, {
       size: 8.2,
-      fill: l.sec ? C.muted : C.body,
+      fill: l.sec || l.make ? C.muted : C.body,
       italic: l.sec,
       weight: l.bold ? 700 : 400,
     });
@@ -272,12 +327,27 @@ export function wiringDiagramSvg(L, section, ts) {
   s += line(hub.x + 10, sepY, hub.x + hub.w - 10, sepY, C.rule, 0.8);
   // Leitungen, Anschlusspunkte und Pin-Beschriftung
   for (const c of L.conns) {
-    s += line(c.x1, c.y, c.x2, c.y, c.color, 1.5);
+    s += styledLine(c.x1, c.y, c.x2, c.y, c.color, c.stroke || { width: 1.5 });
     const right = c.side === 'right';
     s += `<circle cx="${n(right ? hub.x + hub.w : hub.x)}" cy="${n(c.y)}" r="2.6" fill="${C.dot}"/>`;
     s += right
       ? text(hub.x + hub.w - 4, c.y + 3, c.label, { size: 8.6, weight: 700, anchor: 'end' })
       : text(hub.x + 4, c.y + 3, c.label, { size: 8.6, weight: 700 });
+    // Kurzzeichen der Leitungsart an der Baugruppe, Kennzeichen des Anschlusses über der Leitung
+    const boxEnd = right ? c.x2 : c.x1;
+    if (c.code)
+      s += right
+        ? text(boxEnd - 4, c.y - 2.6, c.code, { size: 7, weight: 700, fill: c.color, anchor: 'end' })
+        : text(boxEnd + 4, c.y - 2.6, c.code, { size: 7, weight: 700, fill: c.color });
+    if (c.marks && c.marks.length) {
+      const widths = c.marks.map((k) => ts.width(k.label, 7.2, 700) + 10);
+      const total = widths.reduce((a, w) => a + w, 0) + 3 * (widths.length - 1);
+      let px = (c.x1 + c.x2) / 2 - total / 2;
+      c.marks.forEach((k, i) => {
+        s += pill(ts, px, c.y - 13, k.label, markColor(k)).svg;
+        px += widths[i] + 3;
+      });
+    }
   }
   hub.note.forEach((l, i) => {
     const y = hub.y + hub.h - 41 - 11 * (hub.note.length - 1 - i);
@@ -285,12 +355,11 @@ export function wiringDiagramSvg(L, section, ts) {
   });
   if (hub.bottomLabel) s += text(cx, hub.y + hub.h - 9, hub.bottomLabel, { size: 8.2, weight: 700, anchor: 'middle' });
   // Verbindungen Baugruppe → Unterbaugruppe und Steuerung → Versorgung
-  for (const l of L.links) s += line(l.x, l.y1, l.x, l.y2, l.color, 2.4);
+  for (const l of L.links) s += styledLine(l.x, l.y1, l.x, l.y2, l.color, l.stroke || { width: 1.5 }, 1.6);
   // Kästen
-  const badgeFill = badgeColor(section);
   for (const b of L.boxes) {
     s += boxSvg(b);
-    if (b.badge) s += pill(ts, b.badge.x, b.badge.y, b.badge.label, badgeFill).svg;
+    for (const q of b.marks || []) s += pill(ts, q.x, q.y, q.label, q.color).svg;
   }
   if (L.scale < 1) {
     const [ox, oy] = L.origin;
@@ -302,31 +371,50 @@ export function wiringDiagramSvg(L, section, ts) {
 /** Legende unter dem Schaltbild; `seePage`: Seite des Klemmenplans (oder null). */
 export function legendSvg(section, ts, L, seePage) {
   const base = PAGE.h - 108;
-  const title = ts.label('legend');
-  let s = text(PAGE.left, base, title, { size: 9.5, weight: 700 });
-  const used = new Set(L.boxes.map((b) => b.color));
-  const x0 = Math.max(100, PAGE.left + ts.width(title, 9.5, 700) + 14);
-  let x = x0;
+  let s = '';
   let y = base;
-  for (const cat of section.categories) {
-    const c = color(cat.color);
-    if (!used.has(c)) continue;
-    const label = ts.inline(cat.name);
-    const w = ts.width(label, 8.5);
-    if (x > x0 && x + 25 + w > PAGE.right) {
-      x = x0;
-      y += 14;
+  if (!section.show || section.show.legend !== false) {
+    const title = ts.label('legend');
+    s += text(PAGE.left, base, title, { size: 9.5, weight: 700 });
+    const used = new Set(L.boxes.map((b) => b.box.cat));
+    const x0 = Math.max(100, PAGE.left + ts.width(title, 9.5, 700) + 14);
+    let x = x0;
+    // Leitungsarten (nur verwendete): Linie im Stil, Name, dahinter Kurzzeichen, Ader, Querschnitt
+    for (const cat of section.categories) {
+      if (!used.has(cat.id)) continue;
+      const c = color(cat.color);
+      const extra = [cat.code, cat.wire, cat.cross].map((v) => String(v || '').trim()).filter(Boolean).join(' · ');
+      const label = ts.inline(cat.name) + (extra ? ` (${extra})` : '');
+      const w = ts.width(label, 8.5);
+      if (x > x0 && x + 25 + w > PAGE.right) {
+        x = x0;
+        y += 14;
+      }
+      const st = catStroke(section, cat.id);
+      s += styledLine(x, y - 3, x + 20, y - 3, c, { ...st, width: Math.max(1.6, st.width) }, 1.25);
+      s += text(x + 25, y, label, { size: 8.5, fill: C.body });
+      x += 25 + w + 24;
     }
-    s += line(x, y - 3, x + 20, y - 3, c, 2.2);
-    s += text(x + 25, y, label, { size: 8.5, fill: C.body });
-    x += 25 + w + 24;
-  }
-  y += 18;
-  if (section.badge && section.badge.label && L.boxes.some((b) => b.badge)) {
-    const p = pill(ts, x0, y - 8, section.badge.label, badgeColor(section));
-    s += p.svg;
-    s += text(x0 + p.w + 12.19, y, ts.inline(section.badge.text), { size: 8.5, fill: C.body });
-    y += 16;
+    y += 18;
+    // Kennzeichen (nur verwendete, an Baugruppen oder Anschlüssen) mit Erklärung
+    const usedMarks = new Set([...L.boxes.flatMap((b) => (b.marks || []).map((q) => q.id)), ...L.conns.flatMap((c) => (c.marks || []).map((k) => k.id))]);
+    x = x0;
+    let any = false;
+    for (const k of section.marks || []) {
+      if (!usedMarks.has(k.id) || !k.label) continue;
+      const explain = ts.inline(k.text);
+      const pw = ts.width(k.label, 7.2, 700) + 10;
+      const w = pw + (explain ? 8 + ts.width(explain, 8.5) : 0);
+      if (x > x0 && x + w > PAGE.right) {
+        x = x0;
+        y += 16;
+      }
+      s += pill(ts, x, y - 8, k.label, markColor(k)).svg;
+      if (explain) s += text(x + pw + 8, y, explain, { size: 8.5, fill: C.body });
+      x += w + 22;
+      any = true;
+    }
+    if (any) y += 16;
   }
   if (seePage) s += text(PAGE.left, Math.max(PAGE.h - 74, y), ts.label('seePage', { page: seePage }), { size: 8.5, fill: C.body });
   return s;
@@ -338,17 +426,79 @@ const COLS = [48, 94, 212, 358];
 const colRight = () => [94, 212, 358, PAGE.right];
 const hintTextW = () => PAGE.right - PAGE.left - 22;
 
-/** Zellen einer Tabellenzeile: je Spalte die Zeilen [{ text, sec }]. */
-function rowCells(ts, pin) {
-  const cell = (value, i, weight = 400, fallback = '') => {
-    const width = colRight()[i] - COLS[i] - 6;
-    const runs = ts.runs(value);
-    if (!runs.length && fallback) runs.push({ text: fallback, sec: false });
-    return runs.flatMap((r) =>
-      ts.wrap(r.text, 8.8, width, r.sec ? 400 : weight, r.sec).map((t) => ({ text: t, sec: r.sec })),
-    );
-  };
-  return [cell(pin.name, 0, 700), cell(pin.func, 1), cell(pin.terminal, 2, 400, '-'), cell(pin.note, 3)];
+/** Inhalt einer Zelle (Text oder { de, en }) für einen Anschluss. */
+function cellValue(section, key, pin) {
+  const box = pin.box ? section.boxes.find((b) => b.id === pin.box) : null;
+  const cat = box ? categoryOf(section, box.cat) : null;
+  if (key === 'pin') return pin.name;
+  if (key === 'func') return pin.func;
+  if (key === 'connected') return pin.terminal;
+  if (key === 'remark') return pin.note;
+  if (key === 'wire') return String(pin.wire || '').trim() || (cat && cat.wire) || '';
+  if (key === 'cross') return String(pin.cross || '').trim() || (cat && cat.cross) || '';
+  if (key === 'marks')
+    return marksOf(section, [...new Set([...(pin.marks || []), ...((box && box.marks) || [])])])
+      .map((k) => k.label)
+      .join(', ');
+  if (key === 'target') {
+    if (!box) return '';
+    const bmk = String(box.bmk || '').trim();
+    const name = (lang) => [bmk, tx(box.title, lang)].filter(Boolean).join(' ');
+    return T(name('de'), name('en'));
+  }
+  return '';
+}
+
+const hasValue = (v) => (typeof v === 'string' ? !!v.trim() : !!v && !!(String(v.de || '').trim() || String(v.en || '').trim()));
+
+/**
+ * Spalten des Klemmenplans mit Lage: [{ key, title, x, right }]. Ältere Pläne (ohne Einstellung)
+ * behalten die vier festen Spalten an ihrer bisherigen Stelle; sonst die eingeschalteten Spalten,
+ * leere entfallen, die Breiten verteilen sich nach Gewicht.
+ */
+export function tableColumns(section) {
+  const pins = section.hub.pins;
+  if (!section.columns) return LEGACY_COLUMNS.map((key, i) => ({ key, title: null, x: COLS[i], right: colRight()[i], legacy: true }));
+  const list = section.columns
+    .filter((c) => c.show || c.key === 'pin')
+    .map((c) => ({ ...TERMINAL_COLUMNS.find((t) => t.key === c.key), title: c.title }))
+    .filter((c) => c.key && (c.fixed || pins.some((p) => hasValue(cellValue(section, c.key, p)))));
+  const total = list.reduce((a, c) => a + c.w, 0);
+  const start = PAGE.left + 6;
+  const avail = PAGE.right - start;
+  let acc = 0;
+  return list.map((c) => {
+    const x = start + (acc / total) * avail;
+    acc += c.w;
+    return { key: c.key, title: c.title, x, right: start + (acc / total) * avail };
+  });
+}
+
+/**
+ * Zellen einer Tabellenzeile: je Spalte { lines: [{ text, sec }], size }. Passt ein einzelnes Wort
+ * nicht in eine schmale Spalte, wird die Schrift dieser Zelle etwas kleiner, statt das Wort zu trennen.
+ */
+function rowCells(ts, section, pin, cols) {
+  return cols.map((col) => {
+    const width = col.right - col.x - 6;
+    const runs = ts.runs(cellValue(section, col.key, pin));
+    // ältere Pläne: „-“, wenn keine Klemme angegeben ist
+    if (!runs.length && col.legacy && col.key === 'connected') runs.push({ text: '-', sec: false });
+    const weight = col.key === 'pin' ? 700 : 400;
+    let size = 8.8;
+    const longest = (sz) => Math.max(0, ...runs.flatMap((r) => r.text.split(/\s+/).map((w) => ts.width(w, sz, r.sec ? 400 : weight, r.sec))));
+    if (!col.legacy) while (size > 7.4 && longest(size) > width) size -= 0.2;
+    const lines = runs.flatMap((r) => ts.wrap(r.text, size, width, r.sec ? 400 : weight, r.sec).map((t) => ({ text: t, sec: r.sec })));
+    return { lines, size };
+  });
+}
+
+/** Spaltenüberschrift: verkleinert (bis 7 pt), sonst zweizeilig. Rückgabe: { lines, size }. */
+function headLines(ts, label, width, weight = 700, italic = false, base = 9) {
+  let size = base;
+  while (size > 7 && ts.width(label, size, weight, italic) > width) size -= 0.25;
+  const lines = ts.wrap(label, size, width, weight, italic).slice(0, 2);
+  return { lines, size };
 }
 
 function hintLines(ts, hint) {
@@ -379,37 +529,50 @@ export function terminalPages(section, ts, { top = 132, bottom = PAGE.bottom } =
     svg += text(PAGE.left, y, label, { size: 12, weight: 700 });
     y += 22;
   };
+  const cols = tableColumns(section);
+  // Überschriften vorab setzen: zweizeilige machen die Kopfzeile höher
+  const heads = cols.map((col) => {
+    const own = col.title && hasValue(col.title) ? col.title : null;
+    const de = own ? tx(own, 'de') : STRINGS[col.key].de;
+    const en = own ? tx(own, 'en') : STRINGS[col.key].en;
+    const width = col.right - col.x - 4;
+    const main = headLines(ts, ts.lang === 'en' ? en : de, width);
+    const sec = ts.bi && en !== de ? headLines(ts, en, width, 400, true, 7.5) : null;
+    return { main, sec: sec && { ...sec, lines: sec.lines.slice(0, 1) } };
+  });
+  const extra = Math.max(0, ...heads.map((h) => h.main.lines.length - 1)) * 9;
   const header = () => {
-    const h = ts.bi ? 28 : 20;
+    const h = (ts.bi ? 28 : 20) + extra;
     svg += rect(PAGE.left, y, WIDTH, h, { fill: C.navy });
-    ['pin', 'func', 'connected', 'remark'].forEach((key, i) => {
-      svg += text(COLS[i], y + 13, tx(STRINGS[key], ts.lang), { size: 9, weight: 700, fill: '#fff' });
-      const en = STRINGS[key].en;
-      if (ts.bi && en !== STRINGS[key].de)
-        svg += text(COLS[i], y + 23, en, { size: 7.5, italic: true, fill: '#c8d3db' });
+    cols.forEach((col, i) => {
+      const { main, sec } = heads[i];
+      main.lines.forEach((t, k) => (svg += text(col.x, y + 13 + 9 * k, t, { size: main.size, weight: 700, fill: '#fff' })));
+      if (sec) svg += text(col.x, y + 23 + extra, sec.lines[0] || '', { size: sec.size, italic: true, fill: '#c8d3db' });
     });
     y += h;
   };
 
-  const pins = section.hub.pins;
+  const show = section.show || {};
+  const pins = show.terminals === false ? [] : section.hub.pins;
   if (pins.length) {
     heading(ts.label('pinTableOf', { name: ts.inline(section.hub.short) || ts.inline(section.hub.name) }));
     header();
     pins.forEach((pin, i) => {
-      const cells = rowCells(ts, pin);
-      const h = 16 + 10.56 * (Math.max(1, ...cells.map((c) => c.length)) - 1);
+      const cells = rowCells(ts, section, pin, cols);
+      const h = 16 + 10.56 * (Math.max(1, ...cells.map((c) => c.lines.length)) - 1);
       if (y + h > bottom) {
         flush();
         header();
       }
       if (i % 2 === 0) svg += rect(PAGE.left, y, WIDTH, h, { fill: C.alt });
-      cells.forEach((lines, col) =>
+      cells.forEach(({ lines, size }, col) =>
         lines.forEach((l, k) => {
-          svg += text(COLS[col], y + 11 + 10.56 * k, l.text, {
-            size: 8.8,
-            weight: col === 0 && !l.sec ? 700 : 400,
+          const first = cols[col].key === 'pin';
+          svg += text(cols[col].x, y + 11 + 10.56 * k, l.text, {
+            size,
+            weight: first && !l.sec ? 700 : 400,
             italic: l.sec,
-            fill: l.sec ? C.muted : col === 0 ? C.navy : C.body,
+            fill: l.sec ? C.muted : first ? C.navy : C.body,
           });
         }),
       );
@@ -420,7 +583,7 @@ export function terminalPages(section, ts, { top = 132, bottom = PAGE.bottom } =
     y += 26;
   }
 
-  const hints = section.hints.filter((h) => ts.runs(h.title).length || ts.runs(h.text).length);
+  const hints = show.hints === false ? [] : section.hints.filter((h) => ts.runs(h.title).length || ts.runs(h.text).length);
   if (hints.length) {
     // Überschrift nicht allein am Seitenende
     if (y + 10 + hintHeight(hintLines(ts, hints[0])) > bottom && y > top) flush();

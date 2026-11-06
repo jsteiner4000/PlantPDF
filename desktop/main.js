@@ -244,7 +244,7 @@ function start() {
     });
     view.setBackgroundColor(frameColors().background);
     /** @type {Tab} */
-    const tab = { id: nextId++, view, win: w, state: emptyState(), ready: false, gone: false, closed: false, open, primary, waiting: [], spare };
+    const tab = { id: nextId++, view, win: w, state: emptyState(), ready: false, gone: false, closed: false, open, primary, waiting: [], spare, covered: false };
     if (open) Object.assign(tab.state, placeholder(open));
     w.tabs.splice(Math.max(0, Math.min(index, w.tabs.length)), 0, tab);
     // ganz nach hinten: lädt verdeckt unter der sichtbaren Ansicht (activateTab holt ihn nach vorn)
@@ -254,7 +254,10 @@ function start() {
     view.webContents.setVisualZoomLevelLimits(1, 1);
     view.webContents.loadURL(START_URL);
     if (activate || !w.active) activateTab(tab);
-    else view.setVisible(false);
+    else {
+      view.setVisible(false);
+      tab.covered = true; // bekommt „covered“, sobald es geladen ist (siehe app:ready)
+    }
     broadcastTabs(w);
     return tab;
   }
@@ -295,7 +298,12 @@ function start() {
       w.shown = null;
       // Nur der vordere Tab ist sichtbar: Unter Windows zählen sonst die Verschiebe-Flächen der Titelleiste
       // verdeckter Tabs mit – ein Klick auf einen Tab würde dort zum Verschieben des Fensters.
-      for (const t of w.tabs) if (t !== tab && !t.closed) t.view.setVisible(false);
+      // … und ohne Verschiebe-Flächen: nur der vordere Tab hat welche
+      for (const t of w.tabs)
+        if (t !== tab && !t.closed) {
+          t.view.setVisible(false);
+          setCovered(t, true);
+        }
       setCovered(tab, false);
       if (usable(tab) && w.base.isFocused()) tab.view.webContents.focus();
     };

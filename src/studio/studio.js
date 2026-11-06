@@ -50,6 +50,7 @@ import {
   sectionTitle,
   tx,
   uid,
+  upgradeProject,
 } from './model.js';
 import { documentLabel, renderDocument } from './render.js';
 import { LANDSCAPE, PAGE, PORTRAIT, isLandscape, typesetter } from './svg.js';
@@ -140,6 +141,15 @@ const ZOOMS = [0.5, 0.67, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 
 let cssInjected = false;
 
+/** Stile von „Dokumentation erstellen“ einbinden (auch für die Vorgaben in den Einstellungen). */
+export function injectStudioCss() {
+  if (cssInjected) return;
+  const style = document.createElement('style');
+  style.textContent = STUDIO_CSS;
+  document.head.appendChild(style);
+  cssInjected = true;
+}
+
 export class Studio {
   constructor(app) {
     this.app = app;
@@ -158,12 +168,7 @@ export class Studio {
 
   mount() {
     if (this.root) return;
-    if (!cssInjected) {
-      const style = document.createElement('style');
-      style.textContent = STUDIO_CSS;
-      document.head.appendChild(style);
-      cssInjected = true;
-    }
+    injectStudioCss();
     this.root = htmlToElement(`
 <div id="studio" class="hidden">
   <aside class="sd-side" aria-label="Projektmappe">
@@ -402,6 +407,8 @@ export class Studio {
       return host.open({ kind: 'draft', id: project.id, name: fileLabel(project, opts.file) });
     }
     if (this.project && this.project.id !== project.id && !(await this.confirmClose())) return false;
+    // ältere Anschlusspläne auf den aktuellen Aufbau bringen (z. B. ein Kennzeichen → Liste)
+    upgradeProject(project);
     // Angaben zu Geräten aus dem Lageplan, die noch nicht in den Zugangsdaten stehen
     this.drafts = new Map();
     syncAccess(project, this.drafts);

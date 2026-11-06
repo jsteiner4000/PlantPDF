@@ -7,6 +7,9 @@ import { T, newBox, newPin, newProject, newWiring, uid } from '../../src/studio/
 function exampleWiring() {
   const w = newWiring();
   w.system = T('Testaufbau', 'Test setup');
+  // wie im Vorbild: ein Kennzeichen „12 V“ und der Klemmenplan mit den vier bisherigen Spalten
+  w.marks = [{ id: 'k12', label: '12 V', color: '#b45309', text: T('Baugruppe wird direkt aus dem 12-V-Netzteil versorgt.', 'Module is supplied directly from the 12 V power supply.') }];
+  w.columns = null;
   w.hub = {
     name: T('Arduino Uno'),
     short: T('Arduino'),
@@ -18,10 +21,10 @@ function exampleWiring() {
     w.boxes.push({ ...newBox(cat, side), id, title: T(title), lines: T(lines), ...extra });
   box('display', 'Display 4D Systems', 'Logo, Gesamtzahl und\nRot-Durchgänge\nTX an D2, RX an D3\n(Leitungen gekreuzt)\n5 V und GND vom Arduino', 'sig', 'left', { y: 16, h: 84, pinY: 54, pinGap: 16 });
   box('key', 'Schlüsselschalter', 'Startet das Auslesen\nSchließer gegen GND', 'sig', 'left', { y: 120, h: 56, pinY: 30 });
-  box('ls1', 'Lichtschranke 1 (vorn)', 'Satel ACTIVA-6\nRelaisausgang gegen GND\noffen = unterbrochen', 'ls', 'left', { badge: true, y: 200, h: 72 });
-  box('ls2', 'Lichtschranke 2 (hinten)', 'Satel ACTIVA-6\nRelaisausgang gegen GND\noffen = unterbrochen', 'ls', 'left', { badge: true, y: 294, h: 72 });
+  box('ls1', 'Lichtschranke 1 (vorn)', 'Satel ACTIVA-6\nRelaisausgang gegen GND\noffen = unterbrochen', 'ls', 'left', { marks: ['k12'], y: 200, h: 72 });
+  box('ls2', 'Lichtschranke 2 (hinten)', 'Satel ACTIVA-6\nRelaisausgang gegen GND\noffen = unterbrochen', 'ls', 'left', { marks: ['k12'], y: 294, h: 72 });
   box('relay', 'Relaismodul 3-fach', 'IN1 = Rot an D5\nIN2 = Grün an D6\nIN3 = Blau an D7\nschaltet bei HIGH-Pegel\n5 V und GND vom Arduino', 'led', 'right', { y: 16, h: 90, pinY: 50 });
-  box('lights', 'Leuchten am Tor', 'Rot / Grün / Blau\nüber die Relaiskontakte', 'led', 'right', { badge: true, parent: 'relay', y: 122, h: 58 });
+  box('lights', 'Leuchten am Tor', 'Rot / Grün / Blau\nüber die Relaiskontakte', 'led', 'right', { marks: ['k12'], parent: 'relay', y: 122, h: 58 });
   box('amp', 'Verstärker + Lautsprecher', 'Tonsignal von D9\n5 V und GND vom Arduino', 'pwr', 'right', { y: 190, h: 58, pinY: 16 });
   box('sd', 'MicroSD-Modul', 'CS = D10, MOSI = D11\nMISO = D12, SCK = D13\n5 V und GND vom Arduino', 'sig', 'right', { bus: true, y: 258, h: 66, pinY: 24 });
   box('rtc', 'Uhr DS3231', 'SDA = A4, SCL = A5\n5 V und GND vom Arduino', 'sig', 'right', { bus: true, y: 348, h: 58, pinY: 28 });

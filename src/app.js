@@ -27,6 +27,7 @@ import { fileErrorReason, notifyDocumentState, reviveFileHandle } from './platfo
 import { keepTopBarFitting } from './platform/title-bar.js';
 import { Recovery } from './ui/recovery.js';
 import { saveFlash, saveProgress } from './ui/save-progress.js';
+import { showPresetsDialog } from './studio/presets-dialog.js';
 import { STUDIO_TEMPLATES, Studio, deleteDraft, deleteTemplate, ensureBarlow, listAutosaves, listDrafts, listTemplates, templatePreview } from './studio/studio.js';
 
 /**
@@ -1079,6 +1080,9 @@ export class App {
   <p class="set-note">Dokumentseiten bleiben immer weiß – wie auf Papier.</p>
   <div class="set-h">Speichern</div>
   <label class="ck"><input type="checkbox" id="setStrip"${this.stripActive ? ' checked' : ''}><span>Aktive Inhalte beim Speichern entfernen<small>Skripte, Programmstarts und Anhänge gelangen so nicht in weitergegebene Dateien.</small></span></label>
+  <div class="set-h">Vorgaben für Dokumentationen</div>
+  <p class="set-note">Was neue Dokumentationen mitbringen – eigene Leitungsarten, Kennzeichen (z. B. 360 V), Spalten des Klemmenplans.</p>
+  <button type="button" class="btn outline" id="setWiring">${icon('wiring', 's')}Anschlussplan …</button>
 </div>`);
     const options = [...body.querySelectorAll('.theme')];
     const pick = (button) => {
@@ -1101,6 +1105,7 @@ export class App {
       });
     }
     body.querySelector('#setStrip').addEventListener('change', (ev) => this.toggleStripActive(ev.target.checked));
+    body.querySelector('#setWiring').addEventListener('click', () => showPresetsDialog());
     await showDialog({ title: 'Einstellungen', icon: 'gear', body, buttons: [{ label: 'Fertig', primary: true, value: true }] });
   }
   /**

@@ -41,7 +41,11 @@ import {
   appendToGroup,
   tx,
   uid,
+  newMarking,
+  loadWiringPresets,
+  mergeWiringPresets,
 } from './model.js';
+import { categoriesEditor, columnsEditor, ensureWireLists, marksEditor, showEditor } from './wiring-catalog.js';
 import { thumbOf } from './thumbs.js';
 import { QR_CAPTION_H, serialSources } from './overlays.js';
 import { chapterLabels, referenceTargets } from './chapters.js';
@@ -164,7 +168,7 @@ export class Inspector {
     return el;
   }
 
-  input(value, onInput, { multiline = false, placeholder = '', type = 'text', id = '' } = {}) {
+  input(value, onInput, { multiline = false, placeholder = '', type = 'text', id = '', list = '' } = {}) {
     const el = document.createElement(multiline ? 'textarea' : 'input');
     if (!multiline) el.type = type;
     el.className = 'fld';
@@ -173,6 +177,7 @@ export class Inspector {
     el.spellcheck = type === 'text';
     el.autocomplete = 'off';
     if (id) el.dataset.f = id;
+    if (list) el.setAttribute('list', list);
     if (multiline) el.rows = Math.min(8, Math.max(2, String(value || '').split('\n').length + 1));
     el.addEventListener('input', () => onInput(el.value));
     el.addEventListener('keydown', (ev) => {
@@ -556,51 +561,41 @@ export class Inspector {
         onOpen: (h) => studio.select({ kind: 'hint', id: h.id, section: s.id }, { reveal: true }),
       }),
     );
-    this.categoriesGroup(s);
-    const badge = s.badge;
-    const colorInput = htmlToElement(`<input type="color" class="sd-color" value="${safeColor(badge.color, '#b45309')}">`);
-    colorInput.addEventListener('input', () =>
-      studio.change('Farbe geändert', () => (badge.color = colorInput.value), { key: 'badgecolor:' + s.id }),
-    );
-    const row = htmlToElement('<div class="sd-two narrow"></div>');
-    row.append(this.text('Kennzeichen', badge, 'label', { id: 'badge' + s.id, placeholder: '12 V' }), this.field('Farbe', colorInput));
-    this.group('Versorgungskennzeichen', row, this.bi('Erklärung in der Legende', badge, 'text', { id: 'badgetext' + s.id }));
+    this.wiringCatalogs(s);
   }
 
-  categoriesGroup(s) {
+  /** Leitungsarten, Kennzeichen, Klemmenplan-Spalten und Inhalt des Plans (wie in den Einstellungen). */
+  wiringCatalogs(s) {
     const studio = this.studio;
-    const el = htmlToElement('<div class="sd-cats"></div>');
-    for (const cat of s.categories) {
-      const row = htmlToElement(`<div class="sd-cat"><input type="color" class="sd-color" value="${safeColor(cat.color)}" title="Farbe"></div>`);
-      const name = this.input(
-        tx(cat.name, langsOf(this.project)[0]),
-        (v) => studio.change('Leitungsart umbenannt', () => {
-          if (typeof cat.name !== 'object') cat.name = T(cat.name || '', '');
-          cat.name[langsOf(this.project)[0]] = v;
-        }, { key: 'catname:' + cat.id }),
-        { id: 'cat' + cat.id },
-      );
-      const del = htmlToElement(`<button type="button" class="btn ic" title="Leitungsart entfernen">${icon('trash', 's')}</button>`);
-      const used = s.boxes.some((b) => b.cat === cat.id) || s.hints.some((h) => h.cat === cat.id);
-      del.disabled = used || s.categories.length < 2;
-      if (used) del.title = 'Wird noch verwendet';
-      del.addEventListener('click', () =>
-        studio.change('Leitungsart entfernt', () => (s.categories = s.categories.filter((c) => c !== cat)), { inspector: true }),
-      );
-      row.querySelector('input').addEventListener('input', (ev) =>
-        studio.change('Farbe geändert', () => (cat.color = ev.target.value), { key: 'catcolor:' + cat.id }),
-      );
-      row.append(name, del);
-      el.appendChild(row);
-    }
-    const group = this.group('Leitungsarten', el);
-    group.appendChild(
-      this.addButton('Leitungsart', () =>
-        studio.change('Leitungsart hinzugefügt', () => s.categories.push({ id: uid('c'), name: T('Neue Leitung', 'New line'), color: '#5b6b7a' }), {
-          inspector: true,
-        }),
-      ),
+    const ctx = {
+      langs: langsOf(this.project),
+      commit: (label, fn, o = {}) => studio.change(label, fn, { key: o.key || null, inspector: !!o.rebuild }),
+    };
+    const usedCats = new Set([...s.boxes.map((b) => b.cat), ...s.hints.map((h) => h.cat)]);
+    const usedMarks = new Set([...s.boxes.flatMap((b) => b.marks || []), ...s.hub.pins.flatMap((p) => p.marks || [])]);
+    this.group('Leitungsarten', categoriesEditor(s, { ...ctx, used: usedCats }));
+    this.group(
+      'Kennzeichen',
+      this.note('Frei beschriftete Schilder wie „12 V DC“, „360 V“ oder „USV“ – an Baugruppen und Anschlüssen wählbar.'),
+      marksEditor(s, {
+        ...ctx,
+        used: usedMarks,
+        onRemoveMark: (id) => {
+          for (const b of s.boxes) b.marks = (b.marks || []).filter((x) => x !== id);
+          for (const p of s.hub.pins) p.marks = (p.marks || []).filter((x) => x !== id);
+        },
+      }),
     );
+    this.group('Klemmenplan', columnsEditor(s, ctx));
+    this.group('Im Plan zeigen', showEditor(s, ctx));
+    const merge = htmlToElement(`<button type="button" class="btn outline">${icon('download', 's')}Aus Einstellungen ergänzen</button>`);
+    merge.title = 'Leitungsarten und Kennzeichen aus Einstellungen › Vorgaben ergänzen, die in diesem Plan noch fehlen';
+    merge.addEventListener('click', () => {
+      let added = 0;
+      studio.change('Aus Einstellungen ergänzt', () => (added = mergeWiringPresets(s, loadWiringPresets())), { inspector: true });
+      toast(added ? `${added} Einträge aus den Einstellungen ergänzt.` : 'Alle Vorgaben aus den Einstellungen sind schon enthalten.');
+    });
+    this.group('Vorgaben', this.note('Für neue Dokumentationen: Einstellungen › Vorgaben für Dokumentationen.'), merge);
   }
 
   hubFields(s, title) {
@@ -630,6 +625,59 @@ export class Inspector {
     );
   }
 
+  /**
+   * Kennzeichen wählen (mehrere) für eine Baugruppe oder einen Anschluss; „+“ legt ein neues,
+   * frei beschriftetes an (es steht dann auch in der Liste des Plans und in der Legende).
+   */
+  markChips(s, item) {
+    const studio = this.studio;
+    const el = htmlToElement('<div class="sd-chips multi" role="group"></div>');
+    const chosen = new Set(item.marks || []);
+    for (const k of s.marks || []) {
+      if (!k.label) continue;
+      const on = chosen.has(k.id);
+      const b = htmlToElement(
+        `<button type="button" aria-pressed="${on}" class="${on ? 'on' : ''}" title="${escapeHtml(tx(k.text, 'de') || k.label)}"><i style="background:${safeColor(k.color, '#b45309')}"></i>${escapeHtml(k.label)}</button>`,
+      );
+      b.addEventListener('click', () =>
+        studio.change(on ? 'Kennzeichen entfernt' : 'Kennzeichen gesetzt', () => {
+          const list = (item.marks || []).filter((x) => x !== k.id);
+          // Reihenfolge wie in der Liste des Plans
+          item.marks = on ? list : s.marks.filter((x) => list.includes(x.id) || x.id === k.id).map((x) => x.id);
+        }, { inspector: true }),
+      );
+      el.appendChild(b);
+    }
+    const add = htmlToElement(`<button type="button" title="Neues Kennzeichen (frei beschriftet)">${icon('plus', 's')}Neu</button>`);
+    add.addEventListener('click', () => {
+      const field = htmlToElement('<span class="sd-newmark"><input class="fld" maxlength="24" placeholder="z. B. 360 V DC"><input type="color" class="sd-color" value="#b45309" title="Farbe"></span>');
+      add.replaceWith(field);
+      const [text, colorEl] = field.querySelectorAll('input');
+      text.focus();
+      let finished = false;
+      const done = (ok) => {
+        // Enter und danach das Verlassen des Felds: nur einmal anlegen
+        if (finished) return;
+        finished = true;
+        const label = text.value.trim();
+        if (ok && label)
+          studio.change('Kennzeichen angelegt', () => {
+            const mark = newMarking({ label, color: colorEl.value });
+            s.marks.push(mark);
+            item.marks = [...(item.marks || []), mark.id];
+          }, { inspector: true });
+        else this.render();
+      };
+      text.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') done(true);
+        if (ev.key === 'Escape') done(false);
+      });
+      field.addEventListener('focusout', () => setTimeout(() => !field.contains(document.activeElement) && done(true), 0));
+    });
+    el.appendChild(add);
+    return el;
+  }
+
   /* ---------- Baugruppe ---------- */
 
   boxForm(s, box) {
@@ -637,11 +685,18 @@ export class Inspector {
     const lang = langsOf(this.project)[0];
     const byId = new Map(s.boxes.map((b) => [b.id, b]));
     const side = sideOf(box, byId);
+    const head = htmlToElement('<div class="sd-two"></div>');
+    head.append(
+      this.text('BMK', box, 'bmk', { placeholder: 'z. B. -K1', hint: 'Betriebsmittelkennzeichen (optional)' }),
+      this.bi('Hersteller / Typ', box, 'make', { placeholder: 'optional' }),
+    );
     this.group(
       'Beschriftung',
       this.bi('Titel', box, 'title'),
+      head,
       this.bi('Beschreibung', box, 'lines', { multiline: true, hint: 'Jede Zeile erscheint als eigene Zeile im Kasten.' }),
     );
+    this.group('Kennzeichen', this.markChips(s, box));
     // als Baugruppe wählbar: keine untere, nicht sie selbst und keine ihrer Unterbaugruppen
     const below = new Set([box.id]);
     for (let grew = true; grew; ) {
@@ -685,12 +740,6 @@ export class Inspector {
             box.parent,
             (v) => studio.change('Zuordnung geändert', () => ((box.parent = v), (box.y = null)), { inspector: true }),
           ),
-      this.check(
-        `Kennzeichen „${s.badge.label || '12 V'}“`,
-        box.badge,
-        (v) => studio.change('Kennzeichen geändert', () => (box.badge = v)),
-        tx(s.badge.text, lang),
-      ),
       side === 'bottom'
         ? this.check('Hintergrund füllen', box.fill, (v) => studio.change('Füllung geändert', () => (box.fill = v)))
         : this.check('Sammelleitung', box.bus, (v) => studio.change('Sammelleitung geändert', () => (box.bus = v)), 'Alle Anschlüsse als eine Leitung, z. B. „D10-D13“'),
@@ -741,6 +790,20 @@ export class Inspector {
       ),
       this.bi('Angeschlossen an', pin, 'terminal', { placeholder: 'z. B. Klemme 1' }),
       this.bi('Bemerkung', pin, 'note'),
+    );
+    const box = s.boxes.find((b) => b.id === pin.box);
+    const cat = box && s.categories.find((c) => c.id === box.cat);
+    ensureWireLists();
+    const wire = htmlToElement('<div class="sd-two"></div>');
+    wire.append(
+      this.text('Aderfarbe', pin, 'wire', { placeholder: (cat && cat.wire) || 'z. B. RD', list: 'sdWireColors' }),
+      this.text('Querschnitt', pin, 'cross', { placeholder: (cat && cat.cross) || 'z. B. 0,5 mm²', list: 'sdCrossSections' }),
+    );
+    this.group(
+      'Leitung',
+      wire,
+      this.note(cat && (cat.wire || cat.cross) ? `Leer: wie die Leitungsart „${tx(cat.name, lang)}“.` : 'Leer: wie die Leitungsart (falls dort angegeben).'),
+      this.field('Kennzeichen an der Leitung', this.markChips(s, pin)),
     );
     const index = s.hub.pins.indexOf(pin);
     const move = (dir) =>
