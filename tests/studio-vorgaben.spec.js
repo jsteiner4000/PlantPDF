@@ -475,3 +475,52 @@ test('Lageplan: Laden prüft Kataloge; ältere Pläne behalten ihre Geräteliste
   expect(m.mergeSitePresets(fresh, pre, images)).toBe(0);
   expect(fresh.listCols.some((c) => c.key === 'f:fk')).toBe(true);
 });
+
+test('Vorschau in den Vorgaben: Beispielseiten je Reiter, sofort aktualisiert, Nummer zählt nicht', async ({ browser }) => {
+  const { page, context, errors } = await launch(browser, 'neubau');
+  try {
+    const dlg = await openPresets(page, 'cover');
+    const sheets = dlg.locator('.pre-page .pre-sheet');
+    const captions = () => dlg.locator('.pre-page figcaption').allTextContents();
+    const first = () => sheets.first().innerHTML();
+    await expect(sheets).toHaveCount(1);
+    await expect.poll(captions).toEqual(['Deckblatt']);
+    expect(await first()).toContain('Muster GmbH'); // Beispieldaten
+    // Feld umbenennen und Nummernschema: sofort in der Vorschau
+    await dlg.locator('.sd-cfield[data-key="customer"] .fld').fill('Auftraggeber');
+    await dlg.locator('[data-f="docno"]').fill('PL-{JJJJ}-{NR}');
+    await expect.poll(first).toContain('>Auftraggeber<');
+    await expect.poll(first).toContain('PL-2026-001');
+    // Hausfarbe und Fußzeilentext
+    await dlg.locator('.pre-tab', { hasText: 'Kopf' }).click();
+    await expect.poll(captions).toEqual(['Inhaltsseite mit Kopf- und Fußzeile']);
+    await dlg.locator('.sd-house button[title="Rot"]').click();
+    await dlg.locator('.sd-f', { hasText: 'Eigener Text' }).locator('input').first().fill('Vertraulich');
+    await expect.poll(first).toContain('#9b1c1c');
+    await expect.poll(first).toContain('>Vertraulich<');
+    // Lageplan: Plan, Legende bzw. Geräteliste; eigenes Feld als Spalte
+    await dlg.locator('.pre-tab', { hasText: 'Lageplan' }).click();
+    await expect.poll(captions).toEqual(['Lageplan', 'Geräteliste']);
+    await dlg.locator('.sd-add', { hasText: 'Eigenes Feld' }).click();
+    await dlg.locator('.sd-dfield .sd-cat input.fld').first().fill('Kabel-Nr.');
+    const key = await dlg.locator('.sd-wcol[data-key^="f:"]').getAttribute('data-key');
+    await dlg.locator(`.sd-wcol[data-key="${key}"] input[type=checkbox]`).check();
+    await expect.poll(() => sheets.nth(1).innerHTML()).toContain('>Kabel-Nr.<');
+    await expect.poll(() => sheets.nth(1).innerHTML()).toContain('>W-01<');
+    // Anschlussplan und Zugangsdaten
+    await dlg.locator('.pre-tab', { hasText: 'Anschlussplan' }).click();
+    await expect.poll(captions).toEqual(['Anschlussplan', 'Klemmenplan']);
+    await dlg.locator('.pre-tab', { hasText: 'Zugangsdaten' }).click();
+    await expect.poll(captions).toEqual(['Zugangsdaten']);
+    await expect.poll(first).not.toContain('Muster#26'); // Passwörter verborgen
+    await dlg.locator('.sd-check', { hasText: 'Passwörter und Schlüssel' }).locator('input').check();
+    await expect.poll(first).toContain('Muster#26');
+    await closePresets(page, dlg);
+    // die Vorschau zählt die Dokumentnummer nicht weiter
+    await newDocumentation(page);
+    expect(await page.evaluate(() => window.pdfEditor.studio.project.meta.docNo)).toBe('PL-2026-001');
+    expect(errors).toEqual([]);
+  } finally {
+    await context.close();
+  }
+});

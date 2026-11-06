@@ -1,5 +1,4 @@
 {
-  "0": "Inspector & Font Panels",
   "2": "Site Plan Geometry",
   "4": "PDF Form Fields",
   "8": "Release Workflow",
@@ -25,9 +24,7 @@
   "60": "Electron Builder Base",
   "61": "PDF Renderer & Print",
   "62": "Feature Docs",
-  "64": "Window State",
   "65": "Legacy 1.0 Editor",
-  "67": "Zoom Gestures",
   "69": "Zoom Tests",
   "71": "Electron Fuses",
   "72": "Security & Update Docs",

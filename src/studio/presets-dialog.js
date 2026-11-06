@@ -43,6 +43,7 @@ import { customEditor, displayEditor, fieldsEditor, kindsEditor, listColsEditor,
 import { accessBlocksEditor, accessTablesEditor, listEditor } from './access-catalog.js';
 import { companyEditor, contactsEditor, coverFieldsEditor, docNoEditor, lookEditor } from './doc-catalog.js';
 import { injectStudioCss, readImage } from './studio.js';
+import { previewPages } from './preset-preview.js';
 
 const TABS = [
   ['cover', 'Deckblatt', 'fitp'],
@@ -70,7 +71,38 @@ export async function showPresetsDialog(tab = lastTab) {
     site: () => (resetSitePresets(), (state.site = defaultSitePresets())),
   };
   let current = TABS.some(([id]) => id === tab) ? tab : 'cover';
-  const shell = htmlToElement('<div class="pre-shell"><div class="pre-tabs" role="tablist"></div><div class="pre-dlg sd-ibody" role="tabpanel"></div></div>');
+  const shell = htmlToElement(
+    '<div class="pre-shell"><div class="pre-tabs" role="tablist"></div><div class="pre-main"><div class="pre-dlg sd-ibody" role="tabpanel"></div><aside class="pre-preview" aria-label="Vorschau"><div class="pre-preview-h"><b>Vorschau</b><span>mit Beispieldaten</span></div><div class="pre-pages" aria-live="off"></div></aside></div></div>',
+  );
+  const pagesEl = shell.querySelector('.pre-pages');
+  // Vorschau: nach jeder Änderung neu setzen (gebündelt, höchstens einmal je Bild)
+  let pending = 0;
+  const showPreview = () => {
+    pending = 0;
+    let pages = [];
+    try {
+      pages = previewPages(state, current);
+    } catch (err) {
+      console.warn('Vorschau der Vorgaben', err);
+    }
+    const keep = pagesEl.scrollTop;
+    pagesEl.replaceChildren(
+      ...pages.map((pg) => {
+        const fig = htmlToElement(`<figure class="pre-page${pg.land ? ' land' : ''}"><div class="pre-sheet"></div><figcaption></figcaption></figure>`);
+        fig.querySelector('.pre-sheet').innerHTML = pg.svg;
+        fig.querySelector('figcaption').textContent = pg.label;
+        return fig;
+      }),
+    );
+    pagesEl.scrollTop = keep;
+  };
+  const schedule = (now = false) => {
+    if (now) {
+      cancelAnimationFrame(pending);
+      return showPreview();
+    }
+    if (!pending) pending = requestAnimationFrame(() => setTimeout(showPreview, 60));
+  };
   const tabs = shell.querySelector('.pre-tabs');
   const body = shell.querySelector('.pre-dlg');
   const save = (id) => {
@@ -86,7 +118,9 @@ export async function showPresetsDialog(tab = lastTab) {
         if (id === current) return;
         current = id;
         body.scrollTop = 0;
+        pagesEl.scrollTop = 0;
         render();
+        schedule(true); // Reiterwechsel: Vorschau sofort
       });
       tabs.appendChild(b);
     }
@@ -97,6 +131,7 @@ export async function showPresetsDialog(tab = lastTab) {
       commit: (label, fn, o = {}) => {
         fn();
         save(current);
+        schedule();
         if (o.rebuild) render();
       },
     };
@@ -136,6 +171,7 @@ export async function showPresetsDialog(tab = lastTab) {
           if (raw[id]) {
             state[id] = CLEAN[id](raw[id]);
             save(id);
+            schedule();
           }
         render();
         toast('Vorgaben übernommen.');
@@ -160,8 +196,10 @@ export async function showPresetsDialog(tab = lastTab) {
     });
     body.appendChild(foot);
     body.scrollTop = keep;
+    schedule();
   };
   render();
+  schedule(true);
   await showDialog({ title: 'Vorgaben für Dokumentationen', icon: 'binder', body: shell, buttons: [{ label: 'Fertig', primary: true, value: true }] });
 }
 

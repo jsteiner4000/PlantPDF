@@ -144,19 +144,24 @@ export function takeDocNo() {
  * Standardwerte, Dokumentnummer, feste Ansprechpartner, Wachschutz, Kopf- und Fußzeile.
  */
 export function applyDocPresets(project) {
-  const cover = loadCoverPresets();
-  applyCompany(project, cover.company || rememberedCompany());
+  return applyPresetsTo(project, { cover: loadCoverPresets(), look: loadLookPresets(), site: loadSitePresets(), docNo: takeDocNo() });
+}
+
+/**
+ * Vorgaben (wie übergeben) auf ein Projekt anwenden – für neue Dokumente und die Vorschau in den
+ * Einstellungen (dort ohne die Nummer weiterzuzählen). `company`: Ersatz, wenn keine Firma bekannt ist.
+ */
+export function applyPresetsTo(project, { cover, look, site, docNo = '', company = null }) {
+  applyCompany(project, cover.company || rememberedCompany() || company);
   project.coverFields = copy(cover.fields);
   if (cover.technician) project.meta.technician = cover.technician;
   if (cover.checked) project.meta.checked = cover.checked;
   project.meta.version = cover.version;
-  const no = takeDocNo();
-  if (no) project.meta.docNo = no;
+  if (docNo) project.meta.docNo = docNo;
   project.contacts = [...project.contacts, ...cover.contacts.map((c) => ({ ...copy(c), id: uid('c') }))];
   for (const [k, v] of Object.entries(cover.guard)) if (v) project.guard[k] = v;
-  project.look = loadLookPresets();
+  project.look = copy(look);
   // eigene Symbolarten der Vorgaben in die Lagepläne (Bilder ins Projekt)
-  const site = loadSitePresets();
   for (const s of project.sections) if (s.type === 'site') mergeSitePresets(s, { ...site, styles: [], fields: [], kinds: {} }, project.images);
   return project;
 }

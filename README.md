@@ -69,7 +69,8 @@ src/
                           in wiring-catalog.js; Deckblatt-Felder, Kopf- und Fußzeile in
                           doc-catalog.js; Zugangsdaten-Spalten und Auswahllisten in access-catalog.js;
                           Vorgaben für neue Dokumente: presets.js, Dialog mit
-                          Reitern in presets-dialog.js),
+                          Reitern und Vorschau mit Beispieldaten in presets-dialog.js und
+                          preset-preview.js),
                           Arbeitsbereich (studio.js, inspector.js),
                           Lageplan (site.js; Werkzeuge site-tools.js, Maße geo.js; Symbolarten,
                           Linienarten, Gerätefelder, Geräteliste in site-catalog.js), Fotos (photos.js,
