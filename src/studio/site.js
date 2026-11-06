@@ -8,7 +8,7 @@
  * Hintergrundbild getauscht wird.
  */
 import { C, PAGE, color, esc, line, n, rect, text } from './svg.js';
-import { STRINGS, deviceOf, isBusKind, isHeightKind, projectSymbols, str, symbolInfo, symbolLabels, symbolsInOrder, tx } from './model.js';
+import { LIST_COLUMNS, LIST_FIELD_W, STRINGS, deviceOf, fieldsFor, isBusKind, isHeightKind, projectSymbols, shapeStyle, str, symbolInfo, symbolLabels, symbolsInOrder, tx } from './model.js';
 import { wrap } from './measure.js';
 import {
   LEGEND_ROW,
@@ -67,8 +67,15 @@ export function symbolSvg(info, x, y, r, images) {
   }
   const c = color(info.color);
   const k = (2 * r * 0.7) / 24;
+  const circle = `<circle cx="${n(x)}" cy="${n(y)}" r="${n(r)}" fill="${c}" stroke="#fff" stroke-width="1.2"/>`;
+  // eigenes Symbol ohne Bild und Bildzeichen: das Kürzel im Kreis
+  if (!GLYPHS[info.glyph] && info.code && info.custom) {
+    const t = String(info.code).slice(0, 3);
+    const size = r * (t.length > 2 ? 0.62 : t.length > 1 ? 0.8 : 1.05);
+    return circle + `<text x="${n(x)}" y="${n(y + size * 0.36)}" font-size="${n(size)}" font-weight="700" fill="#fff" text-anchor="middle">${esc(t)}</text>`;
+  }
   return (
-    `<circle cx="${n(x)}" cy="${n(y)}" r="${n(r)}" fill="${c}" stroke="#fff" stroke-width="1.2"/>` +
+    circle +
     `<g transform="translate(${n(x - 12 * k)} ${n(y - 12 * k)}) scale(${k.toFixed(4)})" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${GLYPHS[info.glyph] || ''}</g>`
   );
 }
@@ -161,12 +168,23 @@ function dimSvg(z, [a, b], mpp, ts) {
   return out;
 }
 
-/** Zeichnung (Linie, Freihand, Zaun, Zone, Maßlinie) als SVG; `fills` = nur die Fläche einer Zone. */
-function shapeSvg(z, pts, fills, mpp, ts) {
-  const col = color(z.color);
+/** Strichstärke und Muster einer Linienart (pt). */
+const STYLE_W = { thin: 1, normal: 1.6, thick: 2.6 };
+const styleDash = (t) => (t.dash === 'dashed' ? ' stroke-dasharray="6 3.5"' : t.dash === 'dotted' ? ' stroke-dasharray="0.1 3.2"' : '');
+
+/**
+ * Zeichnung (Linie, Freihand, Zaun, Zone, Maßlinie) als SVG; `fills` = nur die Fläche einer Zone.
+ * Mit Linienart (`style`): deren Farbe, Muster und Stärke, ohne Zaunpfosten.
+ */
+function shapeSvg(z, pts, fills, mpp, ts, style = null) {
+  const col = color(style ? style.color : z.color);
   if (z.type === 'dim') return fills ? '' : dimSvg(z, pts, mpp, ts);
-  if (fills) return z.closed ? `<polygon points="${polyPts(pts)}" fill="${col}" fill-opacity="0.1"/>` : '';
+  if (fills) return z.closed ? `<polygon points="${polyPts(pts)}" fill="${col}" fill-opacity="${style ? 0.14 : 0.1}"/>` : '';
   const tag = z.closed ? 'polygon' : 'polyline';
+  if (style) {
+    const w = STYLE_W[style.width] || 1.6;
+    return `<${tag} points="${polyPts(pts)}" fill="none" stroke="${col}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round"${styleDash(style)}/>`;
+  }
   const width = z.type === 'fence' ? 1.5 : 1.6;
   let out = `<${tag} points="${polyPts(pts)}" fill="none" stroke="${col}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round"/>`;
   if (z.type === 'fence') out += posts(pts, z.closed, col);
@@ -174,7 +192,7 @@ function shapeSvg(z, pts, fills, mpp, ts) {
 }
 
 /** Beschriftungen einer Zeichnung: Name, Länge bzw. Fläche (mit Maßstab). */
-function shapeLabel(z, pts, mpp, ts) {
+function shapeLabel(z, pts, mpp, ts, style = null) {
   if (z.type === 'dim') return '';
   const lang = ts.lang === 'en' ? 'en' : 'de';
   const name = ts.inline(z.name);
@@ -182,7 +200,8 @@ function shapeLabel(z, pts, mpp, ts) {
     const [cx, cy] = centroid(pts);
     const size = mpp && z.showLen ? formatArea(polygonArea(pts) * mpp * mpp, lang) : '';
     if (!name && !size) return '';
-    return (name ? label(cx, cy + (size ? -1.5 : 2.6), name, 'middle', { fill: nameColor(color(z.color)) }) : '') + (size ? label(cx, cy + (name ? 8 : 2.6), size, 'middle', { weight: 400 }) : '');
+    const col = color(style ? style.color : z.color);
+    return (name ? label(cx, cy + (size ? -1.5 : 2.6), name, 'middle', { fill: nameColor(col) }) : '') + (size ? label(cx, cy + (name ? 8 : 2.6), size, 'middle', { weight: 400 }) : '');
   }
   const len = mpp && z.showLen ? formatLength(pathLength(pts) * mpp, lang) : '';
   const value = [name, len].filter(Boolean).join(' · ');
@@ -340,7 +359,8 @@ export function sitePages(section, ts, images, project = null, pdf = null) {
     if (it.kind === 'shape') {
       const z = it.obj;
       const pts = z.pts.map((q) => toPt(q, area));
-      svg += clipped(shapeSvg(z, pts, true) + shapeSvg(z, pts, false, mpp, ts) + shapeLabel(z, pts, mpp, ts), op);
+      const st = shapeStyle(section, z);
+      svg += clipped(shapeSvg(z, pts, true, mpp, ts, st) + shapeSvg(z, pts, false, mpp, ts, st) + shapeLabel(z, pts, mpp, ts, st), op);
       hits.push({ kind: 'shape', id: z.id, rect: bbox(pts), pts, closed: z.closed });
       shapes.push({ id: z.id, type: z.type, pts, closed: z.closed });
     } else if (it.kind === 'link') {
@@ -401,7 +421,28 @@ export function sitePages(section, ts, images, project = null, pdf = null) {
     tail: `  (${count})`,
     draw: (x, y) => symbolSvg(info, x + 6, y - 3, 6, images),
   }));
-  const fences = section.shapes.filter((z) => z.type === 'fence' && thin[z.closed ? 'zone' : 'fence'] !== 'hidden');
+  // Linien- und Flächenarten: Name mit Gesamtlänge bzw. -fläche (mit Maßstab)
+  const lang = ts.lang === 'en' ? 'en' : 'de';
+  for (const st of section.styles || []) {
+    const used = section.shapes.filter((z) => z.style === st.id && z.type !== 'dim' && thin[z.closed ? 'zone' : z.type] !== 'hidden');
+    if (!used.length) continue;
+    const col = color(st.color);
+    const areas = used.filter((z) => z.closed);
+    const lines = used.filter((z) => !z.closed);
+    const ptsOf = (z) => z.pts.map((q) => toPt(q, area));
+    const sum = [];
+    if (mpp && lines.length) sum.push(formatLength(lines.reduce((t, z) => t + pathLength(ptsOf(z)), 0) * mpp, lang));
+    if (mpp && areas.length) sum.push(formatArea(areas.reduce((t, z) => t + polygonArea(ptsOf(z)), 0) * mpp * mpp, lang));
+    entries.push({
+      head: ts.inline(st.name) || ts.label('legend'),
+      tail: sum.length ? `  (${sum.join(', ')})` : '',
+      draw: (x, y) =>
+        st.area
+          ? `<rect x="${n(x + 0.5)}" y="${n(y - 7.5)}" width="11" height="9" rx="1" fill="${col}" fill-opacity="0.14" stroke="${col}" stroke-width="${STYLE_W[st.width] || 1.6}"${styleDash(st)}/>`
+          : `<line x1="${n(x)}" y1="${n(y - 3)}" x2="${n(x + 12)}" y2="${n(y - 3)}" stroke="${col}" stroke-width="${STYLE_W[st.width] || 1.6}" stroke-linecap="round"${styleDash(st)}/>`,
+    });
+  }
+  const fences = section.shapes.filter((z) => z.type === 'fence' && !shapeStyle(section, z) && thin[z.closed ? 'zone' : 'fence'] !== 'hidden');
   if (fences.length) {
     const col = color(fences[0].color);
     entries.push({
@@ -471,7 +512,7 @@ function legendPages(entries, ts) {
 }
 
 /** Bemerkung einer Station mit Richtfunk-Angaben und IP (zweisprachig). */
-function stationNote(section, sym, labels, project) {
+function stationNote(section, sym, labels, project, opts = {}) {
   const parts = { de: [], en: [] };
   const nameOf = (ids) => ids.map((i) => labels.get(i)).filter(Boolean).join(', ');
   for (const l of section.links) {
@@ -490,7 +531,7 @@ function stationNote(section, sym, labels, project) {
   }
   // IP aus den Zugangsdaten (dieselben Daten, an einer Stelle gepflegt)
   const ip = (project && deviceOf(project, sym.id)?.ip) || sym.ip;
-  if (ip) for (const lang of ['de', 'en']) parts[lang].push(`IP ${ip}`);
+  if (ip && !opts.noIp) for (const lang of ['de', 'en']) parts[lang].push(`IP ${ip}`);
   // Montage und Anschluss: Bus/Adresse, Meldegruppe, Bereich, Rekorder-Kanal, Montagehöhe
   const add = (de, en) => (parts.de.push(de), parts.en.push(en));
   const busKind = isBusKind(sym.kind);
@@ -504,25 +545,78 @@ function stationNote(section, sym, labels, project) {
     const nvr = sym.nvr && project ? (projectSymbols(project).find((x) => x.id === sym.nvr) || {}).label : '';
     add([nvr, sym.channel && `Kanal ${sym.channel}`].filter(Boolean).join(' / '), [nvr, sym.channel && `channel ${sym.channel}`].filter(Boolean).join(' / '));
   }
-  if (isHeightKind(sym.kind) && sym.height) add(`Höhe ${sym.height}`, `Height ${sym.height}`);
+  if (isHeightKind(sym.kind) && sym.height && !opts.noHeight) add(`Höhe ${sym.height}`, `Height ${sym.height}`);
+  // eigene Gerätefelder ohne eigene Spalte: „Kabel-Nr.: W12“
+  const mine = new Set(fieldsFor(section, sym.kind).map((f) => f.id));
+  for (const f of opts.extra || []) {
+    const v = mine.has(f.id) && sym.fields && sym.fields[f.id];
+    if (v) add(`${tx(f.label, 'de')}: ${v}`, `${tx(f.label, 'en') || tx(f.label, 'de')}: ${v}`);
+  }
   if (!parts.de.length) return sym.note;
   const join = (lang) => [...parts[lang], tx(sym.note, lang)].filter(Boolean).join(' · ');
   return { de: join('de'), en: join('en') };
 }
 
-/** Spalten der Geräteliste; die Bemerkung nimmt die übrige Breite (im Querformat mehr). */
-const listCols = () => [
-  { x: 48, w: 62, key: 'nr', label: 'nr', bold: true },
-  { x: 110, w: 106, key: 'type', label: 'type' },
-  { x: 216, w: 146, key: 'name', label: 'name' },
-  { x: 362, w: PAGE.right - 362, key: 'note', label: 'remark' },
+/** Spalten der Geräteliste (bisherige Liste); die Bemerkung nimmt die übrige Breite (im Querformat mehr). */
+const legacyCols = () => [
+  { x: 48, w: 62, key: 'nr', label: STRINGS.nr, bold: true },
+  { x: 110, w: 106, key: 'type', label: STRINGS.type },
+  { x: 216, w: 146, key: 'name', label: STRINGS.name },
+  { x: 362, w: PAGE.right - 362, key: 'note', label: STRINGS.remark },
 ];
+
+const LIST_LABEL = { type: STRINGS.type, name: STRINGS.name, ip: STRINGS.ipCol, height: STRINGS.heightCol, note: STRINGS.remark };
+
+/**
+ * Spalten der Geräteliste wie eingestellt: Nr. immer vorn, dann die eingeblendeten Spalten in
+ * ihrer Reihenfolge; IP, Höhe und eigene Felder fallen weg, wenn kein Gerät einen Wert hat.
+ * Feste Breiten, die Bemerkung nimmt den Rest (zu wenig Platz: alle anderen schmaler).
+ */
+function listColumns(section, project) {
+  if (!section.listCols) return legacyCols();
+  const fields = new Map((section.fields || []).map((f) => ['f:' + f.id, f]));
+  const syms = symbolsInOrder(section);
+  const ipOf = (y) => (project && deviceOf(project, y.id)?.ip) || y.ip;
+  const has = {
+    ip: syms.some((y) => ipOf(y)),
+    height: syms.some((y) => isHeightKind(y.kind) && y.height),
+  };
+  const shown = section.listCols.filter((c) => {
+    if (!c.show) return false;
+    if (c.key === 'ip' || c.key === 'height') return has[c.key];
+    if (fields.has(c.key)) return syms.some((y) => y.fields && y.fields[c.key.slice(2)]);
+    return c.key in LIST_COLUMNS;
+  });
+  const total = PAGE.right - 110;
+  const fixedW = (c) => (fields.has(c.key) ? LIST_FIELD_W : LIST_COLUMNS[c.key]);
+  const others = shown.filter((c) => c.key !== 'note');
+  const sum = others.reduce((t, c) => t + fixedW(c), 0);
+  const note = shown.some((c) => c.key === 'note');
+  const minNote = note ? 130 : 0;
+  const k = sum + minNote > total ? (total - minNote) / sum : 1;
+  const spare = total - sum * k - minNote; // ohne Bemerkung: Rest an die letzte Spalte
+  let x = 110;
+  const cols = [{ x: 48, w: 62, key: 'nr', label: STRINGS.nr, bold: true }];
+  shown.forEach((c, i) => {
+    let w = c.key === 'note' ? minNote + spare : fixedW(c) * k;
+    if (!note && i === shown.length - 1) w += spare;
+    const def = fields.has(c.key) ? fields.get(c.key).label : LIST_LABEL[c.key];
+    const own = c.title && (c.title.de || c.title.en) ? { de: c.title.de || def.de, en: c.title.en || def.en } : def;
+    cols.push({ x, w, key: c.key, label: own });
+    x += w;
+  });
+  return cols;
+}
 
 /** Geräteliste: heller Kopf, feine Linien, nach Geräteart gegliedert, Plan-Symbol vor der Nummer. */
 const LIST = { head: '#f1f3f5', headInk: '#1f2933', headRule: '#9aa5b1', rule: '#e4e7eb', nr: '#0e7a6e', type: '#7b8794' };
 
 function listPages(section, ts, labels, project) {
-  const COLS = listCols();
+  const COLS = listColumns(section, project);
+  const keys = new Set(COLS.map((c) => c.key));
+  // eigene Felder ohne Spalte: in der Bemerkung
+  const extra = (section.fields || []).filter((f) => !keys.has('f:' + f.id));
+  const noteOpts = { noIp: keys.has('ip'), noHeight: keys.has('height'), extra };
   const BOTTOM = PAGE.bottom;
   const WIDTH = PAGE.right - PAGE.left;
   const images = (project && project.images) || {};
@@ -535,8 +629,8 @@ function listPages(section, ts, labels, project) {
     const h = bi ? 28 : 20;
     svg += rect(PAGE.left, y, WIDTH, h, { fill: LIST.head });
     for (const c of COLS) {
-      const l = STRINGS[c.label];
-      svg += text(c.x, y + 13, tx(l, ts.lang), { size: 9, weight: 700, fill: LIST.headInk });
+      const l = c.label;
+      svg += text(c.x, y + 13, ellipsize(ts, tx(l, ts.lang), 9, c.w - 6, 700), { size: 9, weight: 700, fill: LIST.headInk });
       if (bi && l.en !== l.de) svg += text(c.x, y + 23, l.en, { size: 7.5, italic: true, fill: C.muted });
     }
     y += h;
@@ -570,12 +664,20 @@ function listPages(section, ts, labels, project) {
     if (!info) return;
     const cell = (value, w, weight = 400) =>
       ts.runs(value).flatMap((r) => wrap(r.text, 8.8, { family: ts.font.css, weight: r.sec ? 400 : weight, italic: r.sec }, w - 8).map((t) => ({ text: t, sec: r.sec })));
-    const cells = {
-      nr: [{ text: labels.get(sym.id), sec: false }],
-      type: cell(info.name, COLS[1].w),
-      name: cell(sym.name, COLS[2].w, 700),
-      note: cell(stationNote(section, sym, labels, project), COLS[3].w),
-    };
+    const width = (key) => (COLS.find((c) => c.key === key) || { w: 100 }).w;
+    const cells = { nr: [{ text: labels.get(sym.id), sec: false }] };
+    for (const c of COLS) {
+      if (c.key === 'type') cells.type = cell(info.name, c.w);
+      else if (c.key === 'name') cells.name = cell(sym.name, c.w, 700);
+      else if (c.key === 'note') cells.note = cell(stationNote(section, sym, labels, project, noteOpts), width('note'));
+      else if (c.key === 'ip') cells.ip = cell((project && deviceOf(project, sym.id)?.ip) || sym.ip || '', c.w);
+      else if (c.key === 'height') cells.height = cell(isHeightKind(sym.kind) ? sym.height || '' : '', c.w);
+      else if (c.key.startsWith('f:')) {
+        const fid = c.key.slice(2);
+        const mine = fieldsFor(section, sym.kind).some((f) => f.id === fid);
+        cells[c.key] = cell((mine && sym.fields && sym.fields[fid]) || '', c.w);
+      }
+    }
     const h = 17 + 10.56 * (Math.max(1, ...Object.values(cells).map((l) => l.length)) - 1);
     const newGroup = sym.kind !== lastKind;
     // Überschrift der Gruppe nie allein am Seitenende

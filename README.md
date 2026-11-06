@@ -71,7 +71,8 @@ src/
                           Vorgaben für neue Dokumente: presets.js, Dialog mit
                           Reitern in presets-dialog.js),
                           Arbeitsbereich (studio.js, inspector.js),
-                          Lageplan (site.js; Werkzeuge site-tools.js, Maße geo.js), Fotos (photos.js,
+                          Lageplan (site.js; Werkzeuge site-tools.js, Maße geo.js; Symbolarten,
+                          Linienarten, Gerätefelder, Geräteliste in site-catalog.js), Fotos (photos.js,
                           exif.js), Zugangsdaten (access.js),
                           Anleitungen (chapters.js: Bausteine, Seitenumbruch, Nummern, Verweise),
                           gespeicherter Stand und automatische Sicherung ungespeicherter Änderungen

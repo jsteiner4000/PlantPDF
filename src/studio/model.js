@@ -90,6 +90,8 @@ export const STRINGS = {
   radioBase: T('Richtfunk-Basis für {to}', 'Radio link base for {to}'),
   scale: T('Maßstab', 'Scale'),
   nr: T('Nr.', 'No.'),
+  ipCol: T('IP-Adresse', 'IP address'),
+  heightCol: T('Montagehöhe', 'Mounting height'),
   type: T('Typ', 'Type'),
   name: T('Bezeichnung', 'Designation'),
   photos: T('Fotodokumentation', 'Photo documentation'),
@@ -304,6 +306,18 @@ export function upgradeProject(project) {
   if (!project.look || typeof project.look !== 'object') project.look = cleanPageLook(project.look);
   if (project.meta && typeof project.meta.checked !== 'string') project.meta.checked = '';
   for (const s of project.sections || []) {
+    if (s.type === 'site') {
+      s.kinds ||= {};
+      s.styles ||= [];
+      s.fields ||= [];
+      if (s.listCols === undefined) s.listCols = null;
+      for (const c of s.custom || []) {
+        c.color ||= '#475569';
+        c.glyph ??= '';
+        c.fov ??= false;
+        c.net ??= false;
+      }
+    }
     if (s.type === 'access' && !s.cols) {
       s.cols = cleanAccessCols(null, { hardware: ['location'], ...(s.hide || {}) });
       delete s.hide;
@@ -499,33 +513,286 @@ export const newShape = (type, pts, color = type === 'fence' ? '#15803d' : '#1d4
 /** Richtfunkstrecke: `from` = Station (bei Punkt-zu-Mehrpunkt die Basis), `to` = Gegenstellen. */
 export const newLink = (mode, from, to = []) => ({ id: uid('l'), mode, from, to, band: '', ssid: '', key: '' });
 
-/** Leerer Lageplan. */
-export const newSite = () => ({
-  id: uid('s'),
-  type: 'site',
-  title: T('Lageplan', 'Site plan'),
-  bg: { image: null, rotate: 0, fit: 'contain', fade: 0 },
-  symbols: [],
+/** Leerer Lageplan (Darstellung, Linienarten, Gerätefelder, Geräteliste nach den Vorgaben). */
+export function newSite(presets = loadSitePresets()) {
+  const d = presets.display;
+  return {
+    id: uid('s'),
+    type: 'site',
+    title: T('Lageplan', 'Site plan'),
+    bg: { image: null, rotate: 0, fit: 'contain', fade: 0 },
+    symbols: [],
+    /** Eigene Symbolarten: { id, image (Bild) | null, name, code, color, glyph, fov, net }. */
+    custom: [],
+    /** Angepasste Standard-Symbole: Art → { code, color, name }. */
+    kinds: copyJson(presets.kinds),
+    /** Linien- und Flächenarten (Kabelweg, Sperrbereich …) für Zeichnungen. */
+    styles: copyJson(presets.styles),
+    /** Eigene Gerätefelder: { id, label, kinds ([] = alle) } – Werte am Symbol in `fields`. */
+    fields: copyJson(presets.fields),
+    /** Spalten der Geräteliste (null: bisherige Liste Nr., Typ, Bezeichnung, Bemerkung). */
+    listCols: copyJson(presets.listCols),
+    shapes: [],
+    links: [],
+    /** Maßstab: Bezugsstrecke a–b (Anteile der Planfläche) mit ihrer Länge in Metern, oder null. */
+    scale: null,
+    scaleBar: d.scaleBar,
+    /** Plan ausdünnen: Art → 'faded' (blass) oder 'hidden' (aus); fehlt = normal. */
+    thin: {},
+    showNumbers: d.showNumbers,
+    showList: d.showList,
+    /** Bus/Adresse an den Symbolen im Plan („BM 3 · 1/12“) */
+    showBus: d.showBus,
+    photoSpotsInPdf: d.photoSpotsInPdf,
+    /** Legende in der PDF: 'below' (unter dem Plan, sonst eigene Seite), 'page' oder 'none' */
+    legend: d.legend,
+  };
+}
+
+const copyJson = (v) => JSON.parse(JSON.stringify(v));
+
+/* ---------- Lageplan: Kataloge und Vorgaben ---------- */
+
+/** Linien- bzw. Flächenart für Zeichnungen: Name, Farbe, Linienstil, Stärke; `area` = für Zonen. */
+export const newSiteStyle = (over = {}) => ({ id: uid('t'), name: T('Neue Linienart', 'New line type'), color: '#c2410c', dash: 'solid', width: 'normal', area: false, ...over });
+
+export const DEFAULT_SITE_STYLES = () => [
+  newSiteStyle({ id: 'tkabel', name: T('Kabelweg', 'Cable route'), color: '#c2410c' }),
+  newSiteStyle({ id: 'trohr', name: T('Leerrohr (geplant)', 'Conduit (planned)'), color: '#475569', dash: 'dashed' }),
+  newSiteStyle({ id: 'tsperr', name: T('Sperrbereich', 'Restricted area'), color: '#b91c1c', dash: 'dashed', area: true }),
+  newSiteStyle({ id: 'tueberw', name: T('Überwachungsbereich', 'Monitored area'), color: '#1d4ed8', area: true }),
+];
+
+/** Eigenes Gerätefeld (z. B. „Kabel-Nr.“, „Montageart“): für alle Arten oder ausgewählte. */
+export const newDeviceField = (over = {}) => ({ id: uid('f'), label: T('Neues Feld', 'New field'), kinds: [], ...over });
+
+/** Spalten der Geräteliste: feste Breite in pt (Bemerkung: der Rest). Eigene Felder: 'f:<id>'. */
+export const LIST_COLUMNS = { type: 106, name: 146, ip: 84, height: 58, note: 0 };
+export const LIST_FIELD_W = 84;
+export const defaultListCols = () => [
+  { key: 'type', show: true, title: T('', '') },
+  { key: 'name', show: true, title: T('', '') },
+  { key: 'ip', show: false, title: T('', '') },
+  { key: 'height', show: false, title: T('', '') },
+  { key: 'note', show: true, title: T('', '') },
+];
+
+export const defaultSiteDisplay = () => ({ showNumbers: true, showList: true, showBus: false, scaleBar: true, photoSpotsInPdf: true, legend: 'below' });
+
+/** Vorgaben für neue Lagepläne (Einstellungen › Vorgaben), wenn nichts eingestellt ist. */
+export const defaultSitePresets = () => ({
+  display: defaultSiteDisplay(),
+  /** Standard-Symbole anpassen: Art → { code, color, name }. */
+  kinds: {},
+  /** In der Galerie ausgeblendete Standard-Symbole. */
+  hidden: [],
+  /** Eigene Symbolarten (Bild als { mime, data, w, h } oder Bildzeichen). */
   custom: [],
-  shapes: [],
-  links: [],
-  /** Maßstab: Bezugsstrecke a–b (Anteile der Planfläche) mit ihrer Länge in Metern, oder null. */
-  scale: null,
-  scaleBar: true,
-  /** Plan ausdünnen: Art → 'faded' (blass) oder 'hidden' (aus); fehlt = normal. */
-  thin: {},
-  showNumbers: true,
-  showList: true,
-  /** Bus/Adresse an den Symbolen im Plan („BM 3 · 1/12“) */
-  showBus: false,
-  photoSpotsInPdf: true,
-  /** Legende in der PDF: 'below' (unter dem Plan, sonst eigene Seite), 'page' oder 'none' */
-  legend: 'below',
+  styles: DEFAULT_SITE_STYLES(),
+  fields: [],
+  listCols: defaultListCols(),
 });
 
+const SITE_PRESETS_KEY = 'pdfix.presets.site';
+const HEX6 = /^#[0-9a-f]{6}$/i;
+const KEY_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** Bildzeichen, die ein eigenes Symbol nutzen kann (die der Standard-Symbole). */
+export const GLYPH_IDS = () => [...new Set(SYMBOLS.map((x) => x.glyph))];
+
+function cleanKinds(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const k of SYMBOLS.map((x) => x.id)) {
+    const o = raw[k];
+    if (!o || typeof o !== 'object') continue;
+    const e = {};
+    const code = str_(o.code, 6).trim();
+    if (code) e.code = code;
+    if (HEX6.test(o.color || '')) e.color = o.color.toLowerCase();
+    if (o.name && typeof o.name === 'object' && (str_(o.name.de).trim() || str_(o.name.en).trim())) e.name = T(str_(o.name.de, 60), str_(o.name.en, 60));
+    if (Object.keys(e).length) out[k] = e;
+  }
+  return out;
+}
+
+function cleanStyles(list, ids = new Set()) {
+  return (Array.isArray(list) ? list : [])
+    .filter((t) => t && typeof t === 'object')
+    .slice(0, 30)
+    .map((t) => {
+      let id = typeof t.id === 'string' && KEY_RE.test(t.id) && !ids.has(t.id) ? t.id : uid('t');
+      while (ids.has(id)) id = uid('t');
+      ids.add(id);
+      return {
+        id,
+        name: toT(t.name),
+        color: HEX6.test(t.color || '') ? t.color : '#c2410c',
+        dash: oneOf(t.dash, ['solid', 'dashed', 'dotted'], 'solid'),
+        width: oneOf(t.width, ['thin', 'normal', 'thick'], 'normal'),
+        area: t.area === true,
+      };
+    });
+}
+
+function cleanFields(list, ids = new Set()) {
+  const kinds = new Set(SYMBOLS.map((x) => x.id));
+  return (Array.isArray(list) ? list : [])
+    .filter((f) => f && typeof f === 'object')
+    .slice(0, 12)
+    .map((f) => {
+      let id = typeof f.id === 'string' && KEY_RE.test(f.id) && !ids.has(f.id) ? f.id : uid('f');
+      while (ids.has(id)) id = uid('f');
+      ids.add(id);
+      const label = f.label && typeof f.label === 'object' ? T(str_(f.label.de, 40), str_(f.label.en, 40)) : T(str_(f.label, 40), '');
+      return { id, label, kinds: (Array.isArray(f.kinds) ? f.kinds : []).filter((k) => typeof k === 'string' && (kinds.has(k) || k === 'custom')).slice(0, 40) };
+    });
+}
+
+/** Spalten der Geräteliste prüfen: bekannte und eigene Felder; fehlende hinten an (eigene aus). */
+export function cleanListCols(list, fields) {
+  if (!Array.isArray(list)) return null;
+  const allowed = new Set([...Object.keys(LIST_COLUMNS), ...fields.map((f) => 'f:' + f.id)]);
+  const out = [];
+  for (const c of list) {
+    if (!c || typeof c !== 'object' || !allowed.has(c.key) || out.some((x) => x.key === c.key)) continue;
+    const title = c.title && typeof c.title === 'object' ? T(str_(c.title.de, 40), str_(c.title.en, 40)) : T('', '');
+    out.push({ key: c.key, show: c.show !== false, title });
+  }
+  for (const c of defaultListCols()) if (!out.some((x) => x.key === c.key)) out.splice(c.key === 'note' ? out.length : Math.max(0, out.length - 1), 0, c);
+  for (const f of fields) if (!out.some((x) => x.key === 'f:' + f.id)) out.splice(Math.max(0, out.findIndex((x) => x.key === 'note')), 0, { key: 'f:' + f.id, show: false, title: T('', '') });
+  return out;
+}
+
+const PRESET_IMAGE_RE = /^data:image\/(png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/;
+
+/** Eigene Symbolart prüfen; `image`: Kennung eines Bilds (Dokument) bzw. das Bild (Vorgaben). */
+function cleanCustom(c, imageOk) {
+  return {
+    name: toT(c.name),
+    code: str_(c.code, 6).trim() || 'ES',
+    color: HEX6.test(c.color || '') ? c.color : '#475569',
+    glyph: GLYPH_IDS().includes(c.glyph) ? c.glyph : '',
+    fov: c.fov === true,
+    net: c.net === true,
+    image: imageOk(c.image),
+  };
+}
+
+export function cleanSitePresets(raw) {
+  const d = defaultSitePresets();
+  const r = raw && typeof raw === 'object' ? raw : {};
+  const disp = r.display && typeof r.display === 'object' ? r.display : {};
+  const fields = Array.isArray(r.fields) ? cleanFields(r.fields) : d.fields;
+  const ids = new Set();
+  const img = (v) => (v && typeof v === 'object' && typeof v.data === 'string' && PRESET_IMAGE_RE.test(v.data) && v.w > 0 && v.h > 0 ? { mime: str_(v.mime, 40), data: v.data, w: Number(v.w), h: Number(v.h) } : null);
+  return {
+    display: {
+      showNumbers: typeof disp.showNumbers === 'boolean' ? disp.showNumbers : true,
+      showList: typeof disp.showList === 'boolean' ? disp.showList : true,
+      showBus: disp.showBus === true,
+      scaleBar: typeof disp.scaleBar === 'boolean' ? disp.scaleBar : true,
+      photoSpotsInPdf: typeof disp.photoSpotsInPdf === 'boolean' ? disp.photoSpotsInPdf : true,
+      legend: oneOf(disp.legend, ['below', 'page', 'none'], 'below'),
+    },
+    kinds: cleanKinds(r.kinds),
+    hidden: (Array.isArray(r.hidden) ? r.hidden : []).filter((k) => SYMBOLS.some((x) => x.id === k && !x.link)),
+    custom: (Array.isArray(r.custom) ? r.custom : [])
+      .filter((c) => c && typeof c === 'object')
+      .slice(0, 40)
+      .map((c) => {
+        let id = typeof c.id === 'string' && KEY_RE.test(c.id) && !ids.has(c.id) ? c.id : uid('u');
+        while (ids.has(id)) id = uid('u');
+        ids.add(id);
+        return { id, ...cleanCustom(c, img) };
+      }),
+    styles: Array.isArray(r.styles) ? cleanStyles(r.styles) : d.styles,
+    fields,
+    listCols: cleanListCols(Array.isArray(r.listCols) ? r.listCols : d.listCols, fields),
+  };
+}
+
+export function loadSitePresets() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SITE_PRESETS_KEY) || 'null');
+    if (raw) return cleanSitePresets(raw);
+  } catch {}
+  return defaultSitePresets();
+}
+
+export function saveSitePresets(presets) {
+  try {
+    localStorage.setItem(SITE_PRESETS_KEY, JSON.stringify(cleanSitePresets(presets)));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function resetSitePresets() {
+  try {
+    localStorage.removeItem(SITE_PRESETS_KEY);
+  } catch {}
+}
+
+/**
+ * Fehlendes aus den Vorgaben in einen Lageplan übernehmen: eigene Symbolarten (Bilder kommen zu
+ * `images`), Linienarten, Gerätefelder (je nach Name), angepasste Standard-Symbole (nur, wo der
+ * Plan nichts Eigenes hat). Liefert die Zahl der ergänzten Einträge.
+ */
+export function mergeSitePresets(site, presets, images) {
+  let added = 0;
+  const same = (a, b) => (tx(a, 'de') || '').trim().toLowerCase() === (tx(b, 'de') || '').trim().toLowerCase();
+  site.custom ||= [];
+  site.styles ||= [];
+  site.fields ||= [];
+  site.kinds ||= {};
+  for (const c of presets.custom) {
+    if (site.custom.some((x) => x.id === c.id || (same(x.name, c.name) && x.code === c.code))) continue;
+    let image = null;
+    if (c.image) {
+      image = uid('img');
+      images[image] = copyJson(c.image);
+    }
+    site.custom.push({ ...copyJson(c), id: site.custom.some((x) => x.id === c.id) ? uid('u') : c.id, image });
+    added++;
+  }
+  for (const t of presets.styles) {
+    if (site.styles.some((x) => x.id === t.id || same(x.name, t.name))) continue;
+    site.styles.push(copyJson(t));
+    added++;
+  }
+  for (const f of presets.fields) {
+    if (site.fields.some((x) => x.id === f.id || same(x.label, f.label))) continue;
+    site.fields.push(copyJson(f));
+    if (site.listCols) site.listCols = cleanListCols(site.listCols, site.fields);
+    added++;
+  }
+  for (const [k, v] of Object.entries(presets.kinds))
+    if (!site.kinds[k]) {
+      site.kinds[k] = copyJson(v);
+      added++;
+    }
+  return added;
+}
+
+/** Linien- bzw. Flächenart einer Zeichnung (oder null). */
+export const shapeStyle = (site, z) => (z.style && (site.styles || []).find((t) => t.id === z.style)) || null;
+
+/** Eigene Felder, die zu einer Symbolart gehören. */
+export const fieldsFor = (site, kind) =>
+  (site.fields || []).filter((f) => !f.kinds.length || f.kinds.includes(kind) || (f.kinds.includes('custom') && String(kind).startsWith('custom:')));
+
+/** Netzwerkgerät (Zugangsdaten)? Standard-Arten nach Liste, eigene nach Einstellung. */
+export function isNetSymbol(site, kind) {
+  if (NET_KINDS.includes(kind)) return true;
+  const id = typeof kind === 'string' && kind.startsWith('custom:') ? kind.slice(7) : null;
+  return !!(id && site && (site.custom || []).some((c) => c.id === id && c.net));
+}
+
 /** Neues Symbol an der Stelle (x, y) – Anteile der Planfläche (0–1). */
-export function newSymbol(kind, x = 0.5, y = 0.5) {
-  const info = SYMBOLS.find((s) => s.id === kind);
+export function newSymbol(kind, x = 0.5, y = 0.5, site = null) {
+  const info = site ? symbolInfo(site, kind) : SYMBOLS.find((s) => s.id === kind);
   return {
     id: uid('y'),
     kind,
@@ -544,15 +811,28 @@ export function newSymbol(kind, x = 0.5, y = 0.5) {
 }
 
 /** Eigenes Symbol (Bild aus `project.images`). */
-export const newCustomSymbol = (image) => ({ id: uid('u'), image, name: T('Eigenes Symbol', 'Custom symbol'), code: 'ES' });
+export const newCustomSymbol = (image = null, over = {}) => ({ id: uid('u'), image, name: T('Eigenes Symbol', 'Custom symbol'), code: 'ES', color: '#475569', glyph: '', fov: false, net: false, ...over });
 
 /** Angaben zu einem Symbolart: { code, name, color, glyph, fov, image } oder null. */
 export function symbolInfo(site, kind) {
   const base = SYMBOLS.find((s) => s.id === kind);
-  if (base) return base;
+  if (base) {
+    // angepasst (Kürzel, Farbe, Name) – je Lageplan
+    const own = site && site.kinds && site.kinds[kind];
+    return own ? { ...base, ...own } : base;
+  }
   const id = typeof kind === 'string' && kind.startsWith('custom:') ? kind.slice(7) : null;
   const custom = id && site.custom.find((c) => c.id === id);
-  return custom ? { code: custom.code || 'ES', name: custom.name, color: '#475569', glyph: null, image: custom.image } : null;
+  if (!custom) return null;
+  return {
+    code: custom.code || 'ES',
+    name: custom.name,
+    color: custom.color || '#475569',
+    glyph: custom.glyph || null,
+    image: custom.image || null,
+    fov: custom.fov ? { angle: 90, range: 60 } : null,
+    custom: true,
+  };
 }
 
 /**
@@ -760,7 +1040,7 @@ export function syncAccess(project, drafts = null, keep = null) {
   const links = [];
   for (const site of sites) {
     const labels = symbolLabels(site, project);
-    for (const y of site.symbols) if (NET_KINDS.includes(y.kind)) syms.push({ y, name: symbolName(site, y, labels), site, labels });
+    for (const y of site.symbols) if (isNetSymbol(site, y.kind)) syms.push({ y, name: symbolName(site, y, labels), site, labels });
     for (const l of site.links) if (l.ssid || l.key) links.push({ l, site, labels });
   }
   const symIds = new Set(syms.map((x) => x.y.id));
@@ -1680,17 +1960,31 @@ function cleanWiring(s, id) {
 const clamp = (v, lo, hi, fallback) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : fallback);
 const DATE_RE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 
+/** Werte eigener Gerätefelder: nur bekannte Felder, Texte begrenzt. */
+function cleanFieldValues(v, ids) {
+  if (!v || typeof v !== 'object') return {};
+  const out = {};
+  for (const [k, val] of Object.entries(v)) if (ids.has(k) && str_(val).trim()) out[k] = str_(val, 200);
+  return Object.keys(out).length ? { fields: out } : {};
+}
+
 function cleanSite(s, id, images) {
-  const d = newSite();
+  const d = newSite(defaultSitePresets());
   const bg = s.bg && typeof s.bg === 'object' ? s.bg : {};
   const renamed = new Map();
+  // eigene Symbolarten: mit Bild oder als Bildzeichen in eigener Farbe
   const custom = (Array.isArray(s.custom) ? s.custom : [])
-    .filter((c) => c && typeof c === 'object' && hasImg(images, c.image))
+    .filter((c) => c && typeof c === 'object')
+    .slice(0, 60)
     .map((c) => {
-      const out = { id: id(c.id, 'u'), image: c.image, name: toT(c.name), code: str_(c.code, 6).trim() || 'ES' };
+      const out = { id: id(c.id, 'u'), ...cleanCustom(c, (v) => (hasImg(images, v) ? v : null)) };
       if (typeof c.id === 'string' && !renamed.has(c.id)) renamed.set(c.id, out.id);
       return out;
     });
+  const styles = cleanStyles(s.styles);
+  const styleIds = new Set(styles.map((t) => t.id));
+  const fields = cleanFields(s.fields);
+  const fieldIds = new Set(fields.map((f) => f.id));
   const kinds = new Set(SYMBOLS.map((x) => x.id));
   /** Symbolart prüfen; eigene Arten folgen ihrer (ggf. neu vergebenen) Kennung. */
   const kindOf = (k) => {
@@ -1718,6 +2012,7 @@ function cleanSite(s, id, images) {
       ...(y.kind === 'mgm' ? { groups: Number.isInteger(y.groups) && y.groups >= 1 && y.groups <= 99 ? y.groups : 2 } : {}),
       ...Object.fromEntries(Object.entries(SYMBOL_DETAILS).filter(([k]) => str_(y[k]).trim()).map(([k, max]) => [k, str_(y[k], max)])),
       ...(typeof y.nvr === 'string' && ID_RE.test(y.nvr) ? { nvr: y.nvr } : {}),
+      ...cleanFieldValues(y.fields, fieldIds),
     }, true));
   const point = (q) => (Array.isArray(q) && q.length === 2 ? [clamp(q[0], 0, 1, 0), clamp(q[1], 0, 1, 0)] : null);
   const shapes = (Array.isArray(s.shapes) ? s.shapes : [])
@@ -1730,6 +2025,7 @@ function cleanSite(s, id, images) {
       color: /^#[0-9a-f]{6}$/i.test(z.color) ? z.color : '#1d4ed8',
       name: toT(z.name),
       showLen: z.showLen !== false,
+      ...(styleIds.has(z.style) ? { style: z.style } : {}),
     }))
     .filter((z) => z.pts.length >= 2)
     .map((z) => (z.type === 'dim' ? { ...z, pts: z.pts.slice(0, 2) } : z));
@@ -1760,6 +2056,10 @@ function cleanSite(s, id, images) {
     },
     symbols,
     custom,
+    kinds: cleanKinds(s.kinds),
+    styles,
+    fields,
+    listCols: cleanListCols(s.listCols, fields),
     shapes,
     links,
     scale: cleanScale(s.scale),

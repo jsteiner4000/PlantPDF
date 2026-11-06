@@ -47,6 +47,10 @@ import {
   cleanPageLook,
   cleanAccessCols,
   loadAccessPresets,
+  GLYPH_IDS,
+  fieldsFor,
+  isNetSymbol,
+  shapeStyle,
 } from './model.js';
 import { accessBlocksEditor, accessTablesEditor } from './access-catalog.js';
 import { categoriesEditor, columnsEditor, ensureWireLists, marksEditor, showEditor } from './wiring-catalog.js';
@@ -1257,8 +1261,30 @@ Object.assign(Inspector.prototype, {
       code.querySelector('input').maxLength = 6;
       const remove = htmlToElement(`<div class="sd-acts" style="padding-top:8px"><button type="button" class="btn outline danger">${icon('trash', 's')}Entfernen</button></div>`);
       remove.querySelector('button').addEventListener('click', () => studio.removeCustom(s, c.id));
-      this.group(`Eigenes Symbol · ${tx(c.name, lang) || c.code}`, this.bi('Bezeichnung', c, 'name', { id: 'cn' + c.id }), code, remove);
+      const look = [];
+      if (!c.image) {
+        // ohne Bild: Bildzeichen (oder Kürzel) im Kreis in eigener Farbe
+        look.push(this.swatches(c.color || '#475569', (v) => studio.change('Farbe geändert', () => (c.color = v), { inspector: true })));
+        const names = new Map(SYMBOLS.map((k) => [k.glyph, tx(k.name, 'de')]));
+        look.push(
+          this.select('Bildzeichen', [['', 'Kürzel als Zeichen'], ...GLYPH_IDS().map((g) => [g, names.get(g) || g])], c.glyph || '', (v) =>
+            studio.change('Bildzeichen geändert', () => (c.glyph = v), { inspector: true }),
+          ),
+        );
+      }
+      look.push(
+        this.check('Erfassungsbereich (wie Kamera/Melder)', !!c.fov, (v) => studio.change('Erfassungsbereich', () => (c.fov = v), { inspector: true })),
+        this.check('Netzwerkgerät', !!c.net, (v) => studio.change('Netzwerkgerät', () => (c.net = v), { inspector: true }), 'IP und Zugang wie bei Kameras; erscheint in den Zugangsdaten.'),
+      );
+      this.group(`Eigenes Symbol · ${tx(c.name, lang) || c.code}`, this.bi('Bezeichnung', c, 'name', { id: 'cn' + c.id }), code, ...look, remove);
     }
+    const catalog = htmlToElement(`<button type="button" class="btn outline sd-wide" data-a="sitecatalog">${icon('list', 's')}Symbolarten, Linienarten und Felder …</button>`);
+    catalog.addEventListener('click', () => studio.editSiteCatalog(s));
+    this.group(
+      'Kataloge',
+      catalog,
+      this.note(`${(s.styles || []).length} Linien-/Flächenarten · ${(s.fields || []).length} eigene Felder${Object.keys(s.kinds || {}).length ? ` · ${Object.keys(s.kinds).length} angepasste Symbole` : ''}. Eigene Symbole: Galerie „Objekt“.`),
+    );
     this.group(
       `Im Plan (${s.symbols.length})`,
       this.rows(symbolsInOrder(s), {
@@ -1377,7 +1403,28 @@ Object.assign(Inspector.prototype, {
       );
     else group.append(this.bi('Bezeichnung', z, 'name', { placeholder: 'optional' }));
     if (z.type === 'fence' && z.pts.length < 3) group.querySelector('.sd-check input').disabled = true;
-    group.append(
+    // Linien- bzw. Flächenart (Kabelweg, Sperrbereich …): bestimmt Farbe und Linie, steht in der Legende
+    const styles = z.type === 'dim' ? [] : (s.styles || []).filter((t) => !!t.area === !!z.closed);
+    const style = shapeStyle(s, z);
+    if (styles.length || style)
+      group.append(
+        this.select(
+          z.closed ? 'Flächenart' : 'Linienart',
+          [['', z.type === 'fence' ? (z.closed ? '– Zone (Zaun) –' : '– Zaun –') : '– keine –'], ...styles.map((t) => [t.id, tx(t.name, 'de') || 'Ohne Namen'])],
+          style ? style.id : '',
+          (v) =>
+            studio.change(
+              'Linienart geändert',
+              () => {
+                if (v) z.style = v;
+                else delete z.style;
+              },
+              { inspector: true },
+            ),
+        ),
+      );
+    if (style) group.append(this.note(`Farbe und Linie aus „${tx(style.name, 'de')}“ – anpassen unter „Symbolarten, Linienarten und Felder …“.`));
+    else group.append(
       this.swatches(z.color, (c) => {
         // nächste Zeichnung dieser Art in derselben Farbe
         if (z.type === 'fence') studio.fenceColor = c;
@@ -1563,7 +1610,7 @@ Object.assign(Inspector.prototype, {
     const labels = symbolLabels(s, this.project);
     const mpp = metersPerPt(s);
     // Antennen gehören zu Strecken: Art nur unter den übrigen Symbolen wechseln
-    const kinds = [...SYMBOLS.filter((k) => !k.link || k.id === y.kind).map((k) => [k.id, tx(k.name, lang)]), ...s.custom.map((c) => ['custom:' + c.id, tx(c.name, lang)])];
+    const kinds = [...SYMBOLS.filter((k) => !k.link || k.id === y.kind).map((k) => [k.id, tx(symbolInfo(s, k.id).name, lang)]), ...s.custom.map((c) => ['custom:' + c.id, tx(c.name, lang)])];
     const nr = symbolNumber(s, y, this.project);
     this.group(
       `${labels.get(y.id) || 'Symbol'}`,
@@ -1596,9 +1643,29 @@ Object.assign(Inspector.prototype, {
       ),
     );
     this.detailsGroup(s, y);
+    // eigene Gerätefelder (Einstellungen bzw. „Symbolarten, Linienarten und Felder …“)
+    const own = fieldsFor(s, y.kind);
+    if (own.length) {
+      const group = this.group('Weitere Angaben');
+      for (const f of own) {
+        const key = `t:df${f.id}:${y.id}`;
+        group.appendChild(
+          this.field(
+            tx(f.label, 'de') || 'Eigenes Feld',
+            this.input((y.fields && y.fields[f.id]) || '', (v) =>
+              studio.change(`${tx(f.label, 'de')} geändert`, () => {
+                y.fields ||= {};
+                if (v.trim()) y.fields[f.id] = v;
+                else delete y.fields[f.id];
+              }, { key }),
+            { id: key }),
+          ),
+        );
+      }
+    }
     // Netzwerkgerät: Zugang (IP, Benutzer, Seriennummer) – dieselben Daten wie unter Zugangsdaten;
     // dort erscheint das Gerät erst, wenn etwas eingetragen ist
-    if (NET_KINDS.includes(y.kind)) {
+    if (isNetSymbol(s, y.kind)) {
       const dev = studio.deviceFor(y.id);
       const acc = this.project.sections.find((x) => x.type === 'access' && x.devices.includes(dev));
       const group = this.group(

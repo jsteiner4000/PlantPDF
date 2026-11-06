@@ -9,6 +9,11 @@ import { escapeHtml, htmlToElement } from '../ui/dom.js';
 import { downloadBytes, pickFiles, showDialog, toast } from '../ui/dialogs.js';
 import {
   cleanAccessPresets,
+  cleanSitePresets,
+  defaultSitePresets,
+  loadSitePresets,
+  resetSitePresets,
+  saveSitePresets,
   cleanPageLook,
   cleanWiringPresets,
   defaultAccessPresets,
@@ -34,6 +39,7 @@ import {
   saveLookPresets,
 } from './presets.js';
 import { categoriesEditor, columnsEditor, field, input, marksEditor, showEditor } from './wiring-catalog.js';
+import { customEditor, displayEditor, fieldsEditor, kindsEditor, listColsEditor, stylesEditor } from './site-catalog.js';
 import { accessBlocksEditor, accessTablesEditor, listEditor } from './access-catalog.js';
 import { companyEditor, contactsEditor, coverFieldsEditor, docNoEditor, lookEditor } from './doc-catalog.js';
 import { injectStudioCss, readImage } from './studio.js';
@@ -42,24 +48,26 @@ const TABS = [
   ['cover', 'Deckblatt', 'fitp'],
   ['look', 'Kopf- und Fußzeile', 'file'],
   ['wiring', 'Anschlussplan', 'wiring'],
+  ['site', 'Lageplan', 'map'],
   ['access', 'Zugangsdaten', 'key'],
 ];
 /** Bereiche im Paket (Export/Import). */
-const PARTS = ['cover', 'look', 'wiring', 'access'];
+const PARTS = ['cover', 'look', 'site', 'wiring', 'access'];
 
 /** Zuletzt geöffneter Reiter (in dieser Sitzung). */
 let lastTab = 'cover';
 
 export async function showPresetsDialog(tab = lastTab) {
   injectStudioCss();
-  const state = { cover: loadCoverPresets(), look: loadLookPresets(), wiring: loadWiringPresets(), access: loadAccessPresets() };
-  const SAVE = { cover: saveCoverPresets, look: saveLookPresets, wiring: saveWiringPresets, access: saveAccessPresets };
-  const CLEAN = { cover: cleanCoverPresets, look: cleanPageLook, wiring: cleanWiringPresets, access: cleanAccessPresets };
+  const state = { cover: loadCoverPresets(), look: loadLookPresets(), site: loadSitePresets(), wiring: loadWiringPresets(), access: loadAccessPresets() };
+  const SAVE = { cover: saveCoverPresets, look: saveLookPresets, site: saveSitePresets, wiring: saveWiringPresets, access: saveAccessPresets };
+  const CLEAN = { cover: cleanCoverPresets, look: cleanPageLook, site: cleanSitePresets, wiring: cleanWiringPresets, access: cleanAccessPresets };
   const RESET = {
     cover: () => (resetCoverPresets(), (state.cover = defaultCoverPresets())),
     look: () => (resetLookPresets(), (state.look = defaultLookPresets())),
     wiring: () => (resetWiringPresets(), (state.wiring = defaultWiringPresets())),
     access: () => (resetAccessPresets(), (state.access = defaultAccessPresets())),
+    site: () => (resetSitePresets(), (state.site = defaultSitePresets())),
   };
   let current = TABS.some(([id]) => id === tab) ? tab : 'cover';
   const shell = htmlToElement('<div class="pre-shell"><div class="pre-tabs" role="tablist"></div><div class="pre-dlg sd-ibody" role="tabpanel"></div></div>');
@@ -104,6 +112,7 @@ export async function showPresetsDialog(tab = lastTab) {
     if (current === 'cover') coverTab(state.cover, ctx, group, note);
     else if (current === 'look') group('Kopf- und Fußzeile', lookEditor(state.look, ctx));
     else if (current === 'access') accessTab(state.access, ctx, group, note);
+    else if (current === 'site') siteTab(state.site, ctx, group, note);
     else wiringTab(state.wiring, ctx, group, note);
 
     const foot = htmlToElement('<div class="pre-foot"></div>');
@@ -216,4 +225,32 @@ function accessTab(presets, ctx, group, note) {
     field('WLAN-Verschlüsselung', listEditor(presets, 'security', ctx, 'z. B. WPA2')),
     field('Dienste für den Fernzugriff', listEditor(presets, 'services', ctx, 'z. B. Hik-Connect')),
   );
+}
+
+function siteTab(presets, ctx, group, note) {
+  const pickImage = async () => {
+    const file = await pickFiles('image/png,image/jpeg,image/svg+xml,image/webp');
+    if (!file) return null;
+    try {
+      return await readImage(file, { max: 256 });
+    } catch {
+      toast('Das Bild konnte nicht gelesen werden (PNG, JPG oder SVG).', 'err', 5000);
+      return null;
+    }
+  };
+  group('Darstellung', displayEditor(presets.display, ctx));
+  group(
+    'Eigene Symbolarten',
+    note('Z. B. Wärmebildkamera oder Brandmeldezentrale – mit Bildzeichen in eigener Farbe oder eigenem Bild. Kommen in jeden neuen Lageplan.'),
+    customEditor(presets, ctx, { imageOf: (c) => c.image, pickImage }),
+  );
+  group('Linien- und Flächenarten', stylesEditor(presets, ctx));
+  group('Eigene Gerätefelder', fieldsEditor(presets, ctx));
+  group('Spalten der Geräteliste', listColsEditor(presets, ctx));
+  group(
+    'Standard-Symbole',
+    note('Häkchen: in der Galerie „Objekt“ zeigen. Kürzel (vor der Nummer) und Farbe für neue Lagepläne; leer bzw. ↺: wie vorgegeben.'),
+    kindsEditor(presets, ctx, { gallery: true }),
+  );
+  group('Vorhandene Pläne', note('Im Dokument holt „Symbolarten, Linienarten und Felder … › Aus Einstellungen ergänzen“ Fehlendes nach.'));
 }

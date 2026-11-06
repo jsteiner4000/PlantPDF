@@ -1741,7 +1741,7 @@ textarea.fld.mono {
 }
 /* Vorgaben: Reiter */
 .dlg:has(.pre-shell) {
-  width: min(640px, 94vw);
+  width: min(720px, 94vw);
   overflow: hidden;
 }
 .pre-shell .pre-tabs {
@@ -1825,4 +1825,54 @@ textarea.fld.mono {
   min-height: 72px;
   resize: vertical;
   line-height: 1.45;
+}
+/* Lageplan-Kataloge (site-catalog.js) */
+.sd-kinds {
+  display: grid;
+  gap: 4px;
+}
+.sd-kind {
+  display: grid;
+  grid-template-columns: 24px 1fr 64px 32px 30px;
+  gap: 6px;
+  align-items: center;
+}
+.sd-kind.with-show {
+  grid-template-columns: 18px 24px 1fr 64px 32px 30px;
+}
+.sd-kind .btn {
+  width: 30px;
+  height: 30px;
+}
+.sd-kind-ic svg {
+  display: block;
+}
+.sd-kind-n {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+}
+.sd-kind .sd-color,
+.sd-custom .sd-color,
+.sd-style .sd-color {
+  width: 30px;
+  height: 30px;
+}
+.sd-kind-show {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--acc);
+}
+.sd-custom-row {
+  grid-template-columns: 30px 1fr 30px !important;
+}
+.sd-dfield-row {
+  grid-template-columns: 1fr 30px !important;
+}
+.sd-custom .sd-acts {
+  margin-top: 8px;
+}
+.sd-wcat .sd-check {
+  margin-top: 6px;
 }

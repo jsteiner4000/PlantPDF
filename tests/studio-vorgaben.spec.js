@@ -314,3 +314,164 @@ test('Zugangsdaten älterer Dokumente: ausgeblendete Spalten bleiben ausgeblende
   expect(pre.roles).toEqual(['A', 'B']);
   expect(pre.blocks).toEqual({ devices: true, hardware: true, network: true, wifi: true, remote: true });
 });
+
+test('Vorgaben Lageplan: eigene Symbolart, angepasste Standard-Symbole, Linienart, Gerätefeld, Geräteliste', async ({ browser }) => {
+  const { page, context, errors } = await launch(browser, 'neubau');
+  try {
+    const dlg = await openPresets(page, 'site');
+    // eigene Symbolart (Bildzeichen, Kürzel)
+    await dlg.locator('.sd-add', { hasText: 'Eigene Symbolart' }).click();
+    const card = dlg.locator('.sd-custom').last();
+    await card.locator('.sd-cat input.fld').first().fill('Wärmebildkamera');
+    await card.locator('.sd-f', { hasText: 'Kürzel' }).locator('input').fill('WB');
+    await card.locator('.sd-check', { hasText: 'Netzwerkgerät' }).locator('input').check();
+    // Standard-Symbole: Kamera heißt „CAM“, Sirene nicht in der Galerie
+    await dlg.locator('.sd-kind[data-kind="camera"] .sd-kind-code').fill('CAM');
+    await dlg.locator('.sd-kind[data-kind="siren"] .sd-kind-show').uncheck();
+    // Linienart „Glasfaser“, gepunktet
+    await dlg.locator('.sd-add', { hasText: 'Linien- oder Flächenart' }).click();
+    const st = dlg.locator('.sd-style').last();
+    await st.locator('.sd-cat input.fld').first().fill('Glasfaser');
+    await st.locator('.sd-seg button', { hasText: 'Gepunktet' }).click();
+    // Gerätefeld „Kabel-Nr.“ als Spalte der Geräteliste
+    await dlg.locator('.sd-add', { hasText: 'Eigenes Feld' }).click();
+    await dlg.locator('.sd-dfield .sd-cat input.fld').first().fill('Kabel-Nr.');
+    const fieldKey = await dlg.locator('.sd-wcol[data-key^="f:"]').getAttribute('data-key');
+    await dlg.locator(`.sd-wcol[data-key="${fieldKey}"] input[type=checkbox]`).check();
+    await dlg.locator('.sd-f', { hasText: 'Legende' }).locator('button', { hasText: 'Eigene Seite' }).click();
+    await closePresets(page, dlg);
+
+    await newDocumentation(page);
+    let site = await page.evaluate(() => JSON.parse(JSON.stringify(window.pdfEditor.studio.project.sections.find((s) => s.type === 'site'))));
+    expect(site.custom.map((c) => [c.code, c.net])).toEqual([['WB', true]]);
+    expect(site.kinds.camera).toEqual({ code: 'CAM' });
+    expect(site.styles.map((t) => t.name.de)).toContain('Glasfaser');
+    expect(site.fields.map((f) => f.label.de)).toEqual(['Kabel-Nr.']);
+    expect(site.legend).toBe('page');
+    // Galerie: Sirene fehlt, Wärmebildkamera ist da
+    await page.evaluate(() => {
+      const st = window.pdfEditor.studio;
+      st.symbolMenu(document.body, st.project.sections.find((s) => s.type === 'site'));
+    });
+    const tiles = page.locator('.sd-gallery .sd-symbol span');
+    await expect(tiles.filter({ hasText: 'Wärmebildkamera' })).toHaveCount(1);
+    await expect(tiles.filter({ hasText: 'Sirene' })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
+    // Kamera und Wärmebildkamera setzen, Kabel-Nr. eintragen, Linie mit „Glasfaser“
+    const ids = await page.evaluate(() => {
+      const st = window.pdfEditor.studio;
+      const s = st.project.sections.find((x) => x.type === 'site');
+      const glas = s.styles.find((t) => t.name.de === 'Glasfaser').id;
+      st.change('Test', () => {
+        s.symbols.push({ id: 'yc', kind: 'camera', x: 0.2, y: 0.2, name: { de: 'Tor', en: '' }, note: { de: '', en: '' }, ip: '', scale: 1, fov: false, dir: 0, angle: 90, range: 60 });
+        s.symbols.push({ id: 'yw', kind: 'custom:' + s.custom[0].id, x: 0.6, y: 0.6, name: { de: 'Hof', en: '' }, note: { de: '', en: '' }, ip: '', scale: 1, fov: false, dir: 0, angle: 90, range: 60 });
+        s.shapes.push({ id: 'zg', type: 'line', pts: [[0.1, 0.9], [0.9, 0.9]], closed: false, color: '#1d4ed8', name: { de: '', en: '' }, showLen: true, style: glas });
+      });
+      st.select({ kind: 'sym', id: 'yc', section: s.id });
+      return { section: s.id, page: st.doc.pages.findIndex((p) => p.section === s.id) };
+    });
+    await page.locator('.sd-grp', { hasText: 'Weitere Angaben' }).locator('.sd-f', { hasText: 'Kabel-Nr.' }).locator('input').fill('W-12');
+    // Wärmebildkamera ist Netzwerkgerät: Zugang am Symbol
+    await page.evaluate((sec) => window.pdfEditor.studio.select({ kind: 'sym', id: 'yw', section: sec }), ids.section);
+    await expect(page.locator('.sd-grp', { has: page.locator('h4', { hasText: /^Zugang$/ }) })).toBeVisible();
+    const plan = await svgOf(page, ids.page);
+    expect(plan).toContain('>CAM 1<');
+    expect(plan).toContain('>WB 1<');
+    expect(plan).toContain('stroke-dasharray="0.1 3.2"'); // gepunktete Glasfaser
+    const legend = await svgOf(page, ids.page + 1); // Legende auf eigener Seite
+    expect(legend).toContain('Glasfaser');
+    const list = await svgOf(page, ids.page + 2);
+    expect(list).toContain('>Kabel-Nr.<');
+    expect(list).toContain('>W-12<');
+    expect(errors).toEqual([]);
+  } finally {
+    await context.close();
+  }
+});
+
+test('Lageplan im Dokument: Linienart an der Zeichnung, Spalten der Geräteliste, aus Einstellungen ergänzen', async ({ browser }) => {
+  const { page, context, errors } = await launch(browser, 'neubau');
+  try {
+    await newDocumentation(page);
+    const ids = await page.evaluate(() => {
+      const st = window.pdfEditor.studio;
+      const s = st.project.sections.find((x) => x.type === 'site');
+      st.change('Test', () => {
+        s.symbols.push({ id: 'yc', kind: 'camera', x: 0.2, y: 0.2, name: { de: 'Tor', en: '' }, note: { de: '', en: '' }, ip: '10.1.1.9', scale: 1, fov: false, dir: 0, angle: 90, range: 60, height: '4 m' });
+        s.shapes.push({ id: 'zz', type: 'fence', pts: [[0.5, 0.1], [0.8, 0.1], [0.8, 0.4]], closed: true, color: '#15803d', name: { de: 'Lager', en: '' }, showLen: true });
+      });
+      st.select({ kind: 'shape', id: 'zz', section: s.id });
+      return { section: s.id, page: st.doc.pages.findIndex((p) => p.section === s.id) };
+    });
+    // Zone als „Sperrbereich“: ohne Zaunpfosten, in der Legende
+    await page.locator('.sd-f', { hasText: 'Flächenart' }).locator('select').selectOption({ label: 'Sperrbereich' });
+    let plan = await svgOf(page, ids.page);
+    expect(plan).toContain('Sperrbereich');
+    expect(plan).not.toContain('r="1.7"'); // keine Zaunpfosten
+    // Spalten der Geräteliste: IP und Montagehöhe als eigene Spalten
+    await page.evaluate((sec) => window.pdfEditor.studio.select({ kind: 'section', id: sec }), ids.section);
+    await page.locator('[data-a="sitecatalog"]').click();
+    const dlg = page.locator('.dlg', { has: page.locator('.sd-site-dlg') });
+    await dlg.locator('.sd-wcol[data-key="ip"] input[type=checkbox]').check();
+    await dlg.locator('.sd-wcol[data-key="height"] input[type=checkbox]').check();
+    let list = await svgOf(page, ids.page + 1);
+    expect(list).toContain('>IP-Adresse<');
+    expect(list).toContain('>10.1.1.9<');
+    expect(list).toContain('>4 m<');
+    expect(list).not.toContain('IP 10.1.1.9'); // nicht doppelt in der Bemerkung
+    // Linienart entfernen: die Zone behält die Farbe, wird wieder zum Zaun
+    const i = await dlg.locator('.sd-style .sd-cat input.fld').evaluateAll((els) => els.findIndex((e) => e.value === 'Sperrbereich'));
+    await dlg.locator('.sd-style').nth(i).locator('.sd-cat .btn').last().click();
+    let shape = await page.evaluate(() => window.pdfEditor.studio.project.sections.find((x) => x.type === 'site').shapes[0]);
+    expect(shape.style).toBeUndefined();
+    expect(shape.color).toBe('#b91c1c');
+    // aus den Einstellungen ergänzen: die entfernte Art kommt zurück
+    await dlg.locator('button', { hasText: 'Aus Einstellungen ergänzen' }).click();
+    await expect.poll(() => dlg.locator('.sd-style .sd-cat input.fld').evaluateAll((els) => els.map((e) => e.value))).toContain('Sperrbereich');
+    await dlg.locator('.btn.primary', { hasText: 'Fertig' }).click();
+    expect(errors).toEqual([]);
+  } finally {
+    await context.close();
+  }
+});
+
+test('Lageplan: Laden prüft Kataloge; ältere Pläne behalten ihre Geräteliste', async () => {
+  const m = await import('../src/studio/model.js');
+  const p = m.newProject('documentation');
+  const site = JSON.parse(JSON.stringify(p.sections.find((s) => s.type === 'site')));
+  // älterer Plan: ohne Kataloge
+  for (const k of ['kinds', 'styles', 'fields', 'listCols']) delete site[k];
+  site.custom = [{ id: 'u1', image: 'fehlt', name: { de: 'Alt', en: '' }, code: 'AL' }];
+  let q = m.normalizeProject({ ...JSON.parse(JSON.stringify(p)), sections: [site] }).sections[0];
+  expect(q.listCols).toBeNull();
+  expect(q.styles).toEqual([]);
+  expect(q.custom[0]).toMatchObject({ code: 'AL', image: null, color: '#475569', glyph: '' });
+  // fremde Werte
+  const bad = {
+    ...site,
+    kinds: { camera: { code: 'TOOLONGCODE', color: 'red' }, evil: { code: 'X' } },
+    styles: [{ id: 't1', name: { de: 'Kabel' }, dash: 'wild', width: 'x', color: '#zzz', area: 'ja' }],
+    fields: [{ id: 'f1', label: { de: 'Kabel-Nr.' }, kinds: ['camera', 'evil'] }],
+    listCols: [{ key: 'f:f1', show: true }, { key: 'evil' }, { key: 'note' }],
+    shapes: [
+      { id: 'z1', type: 'line', pts: [[0, 0], [1, 1]], style: 't1' },
+      { id: 'z2', type: 'line', pts: [[0, 0], [1, 1]], style: 'unbekannt' },
+    ],
+    symbols: [{ id: 'y1', kind: 'camera', x: 0.5, y: 0.5, fields: { f1: 'W-1', f9: 'weg' } }],
+  };
+  q = m.normalizeProject({ ...JSON.parse(JSON.stringify(p)), sections: [bad] }).sections[0];
+  expect(q.kinds).toEqual({ camera: { code: 'TOOLON' } });
+  expect(q.styles[0]).toMatchObject({ id: 't1', dash: 'solid', width: 'normal', color: '#c2410c', area: false });
+  expect(q.fields[0].kinds).toEqual(['camera']);
+  expect(q.listCols.map((c) => c.key)).toEqual(['f:f1', 'type', 'name', 'ip', 'height', 'note']);
+  expect(q.shapes.map((z) => z.style)).toEqual(['t1', undefined]);
+  expect(q.symbols[0].fields).toEqual({ f1: 'W-1' });
+  // Ergänzen: zählt nur Fehlendes
+  const fresh = m.newSite(m.defaultSitePresets());
+  const images = {};
+  const pre = m.cleanSitePresets({ custom: [{ id: 'uw', name: { de: 'WB' }, code: 'WB', glyph: 'camera' }], fields: [{ id: 'fk', label: { de: 'Kabel-Nr.' } }] });
+  expect(m.mergeSitePresets(fresh, pre, images)).toBe(2);
+  expect(m.mergeSitePresets(fresh, pre, images)).toBe(0);
+  expect(fresh.listCols.some((c) => c.key === 'f:fk')).toBe(true);
+});

@@ -52,6 +52,8 @@ import {
   uid,
   upgradeProject,
   langsOf,
+  loadSitePresets,
+  mergeSitePresets,
 } from './model.js';
 import { documentLabel, renderDocument } from './render.js';
 import { LANDSCAPE, PAGE, PORTRAIT, isLandscape, typesetter } from './svg.js';
@@ -82,6 +84,7 @@ import { TooLargeError, assertPrintable, canMakePdf, embedProject, hasProject, m
 import { PDFDocument } from 'pdf-lib';
 import { Inspector } from './inspector.js';
 import { coverFieldsEditor } from './doc-catalog.js';
+import { fieldsEditor, kindsEditor, listColsEditor, stylesEditor } from './site-catalog.js';
 import { applyDocPresets, rememberCompany as rememberCompanyPreset, takeDocNo } from './presets.js';
 import { symbolIconSvg } from './site.js';
 import { hitsShape, siteTools, toolOf } from './site-tools.js';
@@ -104,6 +107,14 @@ export const STUDIO_TEMPLATES = [
   { id: 'tech', title: 'Technische Beschreibung', desc: 'Aufbau, Funktion, technische Daten' },
   { id: 'wiring', title: 'Anschlussplan', desc: 'Schaltbild, Klemmenplan und Hinweise' },
 ];
+
+/** Neuer Lageplan nach den Vorgaben, samt eigener Symbolarten (deren Bilder kommen ins Projekt). */
+function newSiteFromPresets(project) {
+  const presets = loadSitePresets();
+  const site = newSite(presets);
+  mergeSitePresets(site, { ...presets, styles: [], fields: [], kinds: {} }, project.images);
+  return site;
+}
 
 function templateProject(id, parts = null) {
   return newProject(['wiring', 'manual', 'tech'].includes(id) ? id : 'documentation', parts ? { parts } : {});
@@ -311,6 +322,56 @@ export class Studio {
         localStorage.setItem(PARTS_KEY, JSON.stringify(parts));
       } catch {}
     return parts;
+  }
+
+  /**
+   * Kataloge eines Lageplans für dieses Dokument: Standard-Symbole (Kürzel, Farbe), Linien- und
+   * Flächenarten, eigene Gerätefelder, Spalten der Geräteliste; „Aus Einstellungen ergänzen“.
+   */
+  async editSiteCatalog(site) {
+    const p = this.project;
+    if (!p || !site) return;
+    upgradeProject(p);
+    const body = htmlToElement('<div class="pre-dlg sd-ibody sd-site-dlg"></div>');
+    const render = () => {
+      const keep = body.scrollTop;
+      body.innerHTML = '';
+      const ctx = {
+        langs: langsOf(p),
+        commit: (label, fn, o = {}) => {
+          this.change(label, fn, { key: o.key || null, inspector: true });
+          if (o.rebuild) render();
+        },
+        used: new Set(site.shapes.map((z) => z.style).filter(Boolean)),
+        onRemoveStyle: (t) => {
+          for (const z of site.shapes) if (z.style === t.id) (z.color = t.color), delete z.style;
+        },
+        onRemoveField: (f) => {
+          for (const y of site.symbols) if (y.fields) delete y.fields[f.id];
+        },
+      };
+      const group = (title, ...children) => {
+        const el = htmlToElement('<section class="sd-grp"><h4></h4></section>');
+        el.querySelector('h4').textContent = title;
+        el.append(...children);
+        body.appendChild(el);
+      };
+      body.appendChild(htmlToElement('<p class="sd-note">Gilt für diesen Lageplan. Für neue Dokumente: Einstellungen › Vorgaben für Dokumentationen › Lageplan. Eigene Symbolarten bearbeitet man im Eigenschaftenfeld des Lageplans.</p>'));
+      const merge = htmlToElement(`<button type="button" class="btn outline">${icon('download', 's')}Aus Einstellungen ergänzen</button>`);
+      merge.addEventListener('click', () => {
+        let added = 0;
+        ctx.commit('Aus Einstellungen ergänzt', () => (added = mergeSitePresets(site, loadSitePresets(), p.images)), { rebuild: true });
+        toast(added ? `${added} Einträge aus den Einstellungen ergänzt.` : 'Alle Vorgaben aus den Einstellungen sind schon enthalten.');
+      });
+      group('Vorgaben', merge);
+      group('Linien- und Flächenarten', stylesEditor(site, ctx));
+      group('Eigene Gerätefelder', fieldsEditor(site, ctx));
+      group('Spalten der Geräteliste', listColsEditor(site, ctx));
+      group('Standard-Symbole anpassen', htmlToElement('<p class="sd-note">Kürzel (vor der Nummer) und Farbe; leer bzw. ↺: wie vorgegeben.</p>'), kindsEditor(site, ctx, { images: p.images }));
+      body.scrollTop = keep;
+    };
+    render();
+    await showDialog({ title: 'Symbolarten, Linienarten und Felder', icon: 'map', body, buttons: [{ label: 'Fertig', primary: true, value: true }] });
   }
 
   /** Felder des Deckblatts für dieses Dokument anpassen (ein/aus, Reihenfolge, Name, eigene Felder). */
@@ -1487,7 +1548,7 @@ export class Studio {
         : type === 'access'
           ? newAccess()
           : type === 'site'
-            ? newSite()
+            ? newSiteFromPresets(this.project)
             : type === 'photos'
               ? newPhotos()
               : type === 'manual' || type === 'tech'
@@ -2081,7 +2142,7 @@ ${toPdf}
     if (!s || s.type !== 'site' || !this.armed) return;
     if (!symbolInfo(s, this.armed)) return toast('Dieses eigene Symbol gehört zu einem anderen Lageplan.', 'warn', 4000);
     const a = hit.page.site.area;
-    const sym = newSymbol(this.armed, Math.max(0, Math.min(1, (hit.x - a.x) / a.w)), Math.max(0, Math.min(1, (hit.y - a.y) / a.h)));
+    const sym = newSymbol(this.armed, Math.max(0, Math.min(1, (hit.x - a.x) / a.w)), Math.max(0, Math.min(1, (hit.y - a.y) / a.h)), s);
     // Meldegruppenmodul: Typ wie das zuletzt gesetzte
     const lastMgm = sym.kind === 'mgm' && this.project.sections.flatMap((x) => (x.type === 'site' ? x.symbols : [])).filter((y) => y.kind === 'mgm').at(-1);
     if (lastMgm) sym.groups = lastMgm.groups;
@@ -2173,9 +2234,11 @@ ${toPdf}
    */
   symbolMenu(anchor, site) {
     if (!site) return;
-    const kinds = [...SYMBOLS.filter((k) => !k.link).map((k) => k.id), ...site.custom.map((c) => 'custom:' + c.id)];
+    // Galerie: ausgeblendete Standard-Symbole fehlen (Einstellungen › Vorgaben › Lageplan)
+    const hidden = new Set(loadSitePresets().hidden);
+    const kinds = [...SYMBOLS.filter((k) => !k.link && !hidden.has(k.id)).map((k) => k.id), ...site.custom.map((c) => 'custom:' + c.id)];
     const el = htmlToElement(
-      `<div class="menu sd-gallery" role="dialog" aria-label="Objekt wählen"><h5>Symbole</h5><div class="sd-symbols"></div><h5>Installation</h5><div class="sd-symbols" data-g="infra"></div><h5>Richtfunk</h5><div class="sd-symbols" data-g="radio"></div><h5>Zeichnen</h5><div class="sd-symbols" data-g="draw"></div><hr><button type="button" class="mi" data-custom>${icon('plus', 's')}<span>Eigenes Symbol hochladen …</span></button></div>`,
+      `<div class="menu sd-gallery" role="dialog" aria-label="Objekt wählen"><h5>Symbole</h5><div class="sd-symbols"></div><h5>Installation</h5><div class="sd-symbols" data-g="infra"></div><h5>Richtfunk</h5><div class="sd-symbols" data-g="radio"></div><h5>Zeichnen</h5><div class="sd-symbols" data-g="draw"></div><hr><button type="button" class="mi" data-custom>${icon('plus', 's')}<span>Eigenes Symbol hochladen …</span></button><button type="button" class="mi" data-catalog>${icon('list', 's')}<span>Symbolarten, Linienarten und Felder …</span></button></div>`,
     );
     const [grid, infra, radio, draw] = el.querySelectorAll('.sd-symbols');
     const tile = (cls, kind, label, art, parent) => {
@@ -2198,6 +2261,10 @@ ${toPdf}
     el.querySelector('[data-custom]').addEventListener('click', () => {
       closeMenu();
       this.addCustomSymbol(site);
+    });
+    el.querySelector('[data-catalog]').addEventListener('click', () => {
+      closeMenu();
+      this.editSiteCatalog(site);
     });
     showPopover(el, anchor);
   }

@@ -6,7 +6,7 @@
  *
  * Die Vorgaben des Anschlussplans liegen in model.js (loadWiringPresets).
  */
-import { T, cleanCoverFields, cleanPageLook, defaultCoverFields, defaultLook, formatDocNo, newGuard, uid } from './model.js';
+import { T, cleanCoverFields, cleanPageLook, defaultCoverFields, defaultLook, formatDocNo, loadSitePresets, mergeSitePresets, newGuard, uid } from './model.js';
 
 const COVER_KEY = 'pdfix.presets.cover';
 const LOOK_KEY = 'pdfix.presets.look';
@@ -155,6 +155,9 @@ export function applyDocPresets(project) {
   project.contacts = [...project.contacts, ...cover.contacts.map((c) => ({ ...copy(c), id: uid('c') }))];
   for (const [k, v] of Object.entries(cover.guard)) if (v) project.guard[k] = v;
   project.look = loadLookPresets();
+  // eigene Symbolarten der Vorgaben in die Lagepläne (Bilder ins Projekt)
+  const site = loadSitePresets();
+  for (const s of project.sections) if (s.type === 'site') mergeSitePresets(s, { ...site, styles: [], fields: [], kinds: {} }, project.images);
   return project;
 }
 
